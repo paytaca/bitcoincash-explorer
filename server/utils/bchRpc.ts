@@ -4,16 +4,22 @@ type JsonRpcResponse<T> = JsonRpcSuccess<T> | JsonRpcFailure
 
 export async function bchRpc<T>(method: string, params: unknown[] = []): Promise<T> {
   const config = useRuntimeConfig()
-  if (!config.bchRpcUrl) {
-    throw createError({ statusCode: 500, statusMessage: 'BCH_RPC_URL not set' })
+  // Prefer Nuxt runtime config (NUXT_*), but allow direct env vars (BCH_RPC_*)
+  // for local dev and simpler Docker setups.
+  const bchRpcUrl = config.bchRpcUrl || process.env.BCH_RPC_URL
+  const bchRpcUser = config.bchRpcUser || process.env.BCH_RPC_USER
+  const bchRpcPass = config.bchRpcPass || process.env.BCH_RPC_PASS
+
+  if (!bchRpcUrl) {
+    throw createError({ statusCode: 500, statusMessage: 'BCH_RPC_URL not set (set BCH_RPC_URL or NUXT_BCH_RPC_URL)' })
   }
 
   const auth =
-    config.bchRpcUser && config.bchRpcPass
-      ? 'Basic ' + Buffer.from(`${config.bchRpcUser}:${config.bchRpcPass}`).toString('base64')
+    bchRpcUser && bchRpcPass
+      ? 'Basic ' + Buffer.from(`${bchRpcUser}:${bchRpcPass}`).toString('base64')
       : undefined
 
-  const res = await $fetch<JsonRpcResponse<T>>(config.bchRpcUrl, {
+  const res = await $fetch<JsonRpcResponse<T>>(bchRpcUrl, {
     method: 'POST',
     headers: {
       ...(auth ? { Authorization: auth } : {}),

@@ -299,8 +299,13 @@ watch(
     await Promise.all(
       uniq.map(async (cat) => {
         if (metaByCategory[cat]) return
-        const payload = await $fetch<any>(`/api/bcmr/token/${cat}`)
-        metaByCategory[cat] = normalizeTokenMeta(payload)
+        try {
+          const payload = await $fetch<any>(`/api/bcmr/token/${cat}`)
+          metaByCategory[cat] = normalizeTokenMeta(payload)
+        } catch {
+          // Avoid repeated retries; token metadata is optional.
+          metaByCategory[cat] = {}
+        }
       })
     )
   },

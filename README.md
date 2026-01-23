@@ -36,6 +36,27 @@ NPM_CONFIG_CACHE="$PWD/.npm-cache" npm run dev
 
 Open `http://localhost:3000`.
 
+## Docker (port 8000)
+
+Build:
+
+```bash
+docker build -t bch-explorer .
+```
+
+Run (maps container port 8000 → host 8000):
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e BCH_RPC_URL="http://host.docker.internal:8332/" \
+  -e BCH_RPC_USER="rpcuser" \
+  -e BCH_RPC_PASS="rpcpass" \
+  -e BCMR_BASE_URL="https://bcmr.paytaca.com" \
+  bch-explorer
+```
+
+Open `http://localhost:8000`.
+
 ## Implemented routes
 
 - `/` latest blocks

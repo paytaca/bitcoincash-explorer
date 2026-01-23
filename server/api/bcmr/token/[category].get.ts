@@ -5,21 +5,40 @@ export default defineEventHandler(async (event) => {
   }
 
   const config = useRuntimeConfig()
-  const base = String(config.bcmrBaseUrl || '').replace(/\/+$/, '')
-  if (!base) {
+  const configured = String(config.bcmrBaseUrl || '').trim()
+  if (!configured) {
     throw createError({ statusCode: 500, statusMessage: 'BCMR_BASE_URL not set' })
   }
 
-  // Current Paytaca BCMR indexer token endpoint (single object response)
-  // Example: https://bcmr.paytaca.com/api/tokens/<category>/
-  const urlV2 = `${base}/api/tokens/${category}/`
+  // Support both:
+  // - https://bcmr.paytaca.com
+  // - https://bcmr.paytaca.com/api
+  const base = configured.replace(/\/+$/, '')
+  const root = base.endsWith('/api') ? base.slice(0, -4) : base
 
-  try {
-    return await $fetch(urlV2, { method: 'GET' })
-  } catch (_e) {
+  const candidates = [
+    // Current Paytaca BCMR indexer token endpoint (single object response)
+    `${root}/api/tokens/${category}/`,
+    // If user configured BCMR_BASE_URL=https://.../api, try /tokens as well
+    `${base}/tokens/${category}/`,
     // Backwards compatible fallback (older endpoint returns an array of candidates)
-    const urlV1 = `${base}/bcmr/token/${category}/all`
-    return await $fetch(urlV1, { method: 'GET' })
+    `${root}/bcmr/token/${category}/all`
+  ]
+
+  let lastErr: unknown = undefined
+  for (const url of candidates) {
+    try {
+      return await $fetch(url, { method: 'GET', headers: { Accept: 'application/json' } })
+    } catch (e) {
+      lastErr = e
+    }
   }
+
+  // Surface a useful error to the client (tx page will ignore and continue).
+  throw createError({
+    statusCode: 502,
+    statusMessage: `BCMR lookup failed for category ${category}`,
+    cause: lastErr
+  })
 })
 

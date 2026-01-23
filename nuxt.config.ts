@@ -8,14 +8,19 @@ export default defineNuxtConfig({
   css: ['~/assets/main.css'],
 
   runtimeConfig: {
-    bchRpcUrl: process.env.BCH_RPC_URL,
-    bchRpcUser: process.env.BCH_RPC_USER,
-    bchRpcPass: process.env.BCH_RPC_PASS,
+    // NOTE: These are runtime-config values and should be provided via environment
+    // variables at runtime (e.g. Docker/Compose). Nuxt maps these from:
+    // - NUXT_BCH_RPC_URL / NUXT_BCH_RPC_USER / NUXT_BCH_RPC_PASS
+    bchRpcUrl: '',
+    bchRpcUser: '',
+    bchRpcPass: '',
 
-    bcmrBaseUrl: process.env.BCMR_BASE_URL || 'https://bcmr.paytaca.com',
+    // - NUXT_BCMR_BASE_URL
+    bcmrBaseUrl: 'https://bcmr.paytaca.com',
 
     public: {
-      chain: process.env.CHAIN || 'mainnet'
+      // - NUXT_PUBLIC_CHAIN
+      chain: 'mainnet'
     }
   },
 
