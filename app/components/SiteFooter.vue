@@ -5,7 +5,7 @@
         <a class="link" href="https://github.com/paytaca/bitcoincash-explorer" target="_blank" rel="noreferrer">GitHub</a>
       </div>
       <div class="right muted">
-        Made with ❤️ by <a class="link" href="https://www.paytaca.com" target="_blank" rel="noreferrer">Paytaca</a>
+        Made with ❤️ by <a class="link" href="https://www.paytaca.com" target="_blank" rel="noreferrer">&nbsp;Paytaca</a>
       </div>
     </div>
   </footer>

@@ -2,6 +2,7 @@
   <header class="header">
     <div class="inner">
       <NuxtLink class="brand" to="/">
+        <img class="logo" src="/logo.svg" alt="" aria-hidden="true" />
         <span class="title">Bitcoin Cash Explorer</span>
       </NuxtLink>
 
@@ -74,6 +75,7 @@ watch(
 .brand {
   display: inline-flex;
   align-items: center;
+  gap: 10px;
   text-decoration: none;
   color: rgba(17, 24, 39, 1);
   cursor: pointer;
@@ -82,6 +84,11 @@ watch(
 }
 .brand:hover {
   color: rgba(29, 78, 216, 1);
+}
+.logo {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
 }
 .title {
   font-weight: 700;

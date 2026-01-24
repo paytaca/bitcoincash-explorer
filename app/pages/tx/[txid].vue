@@ -111,7 +111,84 @@
         <li v-for="(o, idx) in outputs" :key="o.key" class="row">
           <div class="rowTop">
             <div class="mono muted">#{{ idx }}</div>
-            <div class="amount">{{ formatBch(o.value) }} <span class="unit">BCH</span></div>
+            <div class="amountRow">
+              <span class="amount">{{ formatBch(o.value) }} <span class="unit">BCH</span></span>
+              <span class="spentIcon" :class="spentStatusClass(o)">
+                <template v-if="outpointStatus[o.n] === 'unspent'">
+                  <span class="iconBadge" aria-label="Unspent" title="Unspent">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 2.5a9.5 9.5 0 1 0 0 19a9.5 9.5 0 0 0 0-19Z"
+                        fill="currentColor"
+                        opacity="0.16"
+                      />
+                      <path
+                        d="M8.2 11.2V9.3a3.8 3.8 0 1 1 7.6 0v1.9"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                      <rect
+                        x="7.6"
+                        y="11.2"
+                        width="8.8"
+                        height="7.6"
+                        rx="1.6"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      />
+                      <path
+                        d="M12 14.3v1.6"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </span>
+                </template>
+                <template v-else-if="outpointStatus[o.n] === 'spent'">
+                  <span class="iconBadge" aria-label="Spent" title="Spent">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 2.5a9.5 9.5 0 1 0 0 19a9.5 9.5 0 0 0 0-19Z"
+                        fill="currentColor"
+                        opacity="0.12"
+                      />
+                      <path
+                        d="M9.3 11.2V9.3a3.8 3.8 0 0 1 7.2-1.9"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                      <rect
+                        x="7.6"
+                        y="11.2"
+                        width="8.8"
+                        height="7.6"
+                        rx="1.6"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      />
+                      <path
+                        d="M8.2 16.9L15.8 9.3"
+                        stroke="currentColor"
+                        stroke-width="2.4"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </span>
+                </template>
+                <template v-else>
+                  <span aria-label="Unknown" title="Unknown">•</span>
+                </template>
+              </span>
+            </div>
           </div>
 
           <div class="line">
@@ -205,6 +282,8 @@ type TxOutput = {
   tokenData?: TokenData
 }
 
+type OutpointStatus = 'unspent' | 'spent' | 'unknown'
+
 const inputs = computed<TxInput[]>(() => {
   const vin = tx.value?.vin
   if (!Array.isArray(vin)) return []
@@ -243,12 +322,33 @@ const outputs = computed<TxOutput[]>(() => {
 const totalIn = computed(() => inputs.value.reduce((sum, i) => sum + (i.value || 0), 0))
 const totalOut = computed(() => outputs.value.reduce((sum, o) => sum + (o.value || 0), 0))
 
+const outpointStatus = reactive<Record<number, OutpointStatus>>({})
+
 const hasAnyToken = computed(() => {
   return (
     inputs.value.some((i) => Boolean(i.tokenData?.category)) ||
     outputs.value.some((o) => Boolean(o.tokenData?.category))
   )
 })
+
+watch(
+  () => outputs.value.map((o) => o.n),
+  async (ns) => {
+    const uniq = Array.from(new Set(ns))
+    await Promise.all(
+      uniq.map(async (n) => {
+        if (outpointStatus[n]) return
+        try {
+          const res = await $fetch<{ status: OutpointStatus }>(`/api/bch/txout/${txid}/${n}`)
+          outpointStatus[n] = res?.status || 'unknown'
+        } catch {
+          outpointStatus[n] = 'unknown'
+        }
+      })
+    )
+  },
+  { immediate: true }
+)
 
 function normalizeTokenMeta(payload: any): { name?: string; symbol?: string; decimals?: number } {
   // New endpoint: single object
@@ -344,6 +444,11 @@ function formatAmount(amountStr: string, decimals?: number) {
   const frac = (amt % base).toString().padStart(dec, '0').replace(/0+$/, '')
   const wholeStr = intFmt.format(whole)
   return frac ? `${wholeStr}${decimalSep}${frac}` : wholeStr
+}
+
+function spentStatusClass(o: TxOutput) {
+  const s = outpointStatus[o.n]
+  return s === 'unspent' ? 'isUnspent' : s === 'spent' ? 'isSpent' : 'isUnknown'
 }
 </script>
 
@@ -458,6 +563,32 @@ function formatAmount(amountStr: string, decimals?: number) {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 6px;
+}
+.amountRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.spentIcon {
+  line-height: 1;
+}
+.iconBadge {
+  display: inline-flex;
+  vertical-align: middle;
+  transform: translateY(-1px);
+}
+.iconBadge svg {
+  width: 18px;
+  height: 18px;
+}
+.spentIcon.isUnspent {
+  color: rgba(6, 95, 70, 1);
+}
+.spentIcon.isSpent {
+  color: rgba(185, 28, 28, 1);
+}
+.spentIcon.isUnknown {
+  color: rgba(107, 114, 128, 1);
 }
 .line {
   display: grid;
