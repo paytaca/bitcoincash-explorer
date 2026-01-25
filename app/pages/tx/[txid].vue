@@ -113,7 +113,7 @@
             <div class="mono muted">#{{ idx }}</div>
             <div class="amountRow">
               <span class="amount">{{ formatBch(o.value) }} <span class="unit">BCH</span></span>
-              <span class="spentIcon" :class="spentStatusClass(o)">
+              <span v-if="o.type !== 'nulldata'" class="spentIcon" :class="spentStatusClass(o)">
                 <template v-if="outpointStatus[o.n] === 'unspent'">
                   <span class="iconBadge" aria-label="Unspent" title="Unspent">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -192,8 +192,14 @@
           </div>
 
           <div class="line">
-            <span class="label">To</span>
-            <span class="addr">{{ formatOutputAddresses(o) || o.type || '—' }}</span>
+            <span class="label">{{ o.type === 'nulldata' ? 'Data' : 'To' }}</span>
+            <span class="addr">
+              {{
+                o.type === 'nulldata'
+                  ? o.asm || '—'
+                  : formatOutputAddresses(o) || o.type || '—'
+              }}
+            </span>
           </div>
 
           <div v-if="o.tokenData?.category" class="tokenBox">
@@ -279,6 +285,7 @@ type TxOutput = {
   address?: string
   addresses?: string[]
   type?: string
+  asm?: string
   tokenData?: TokenData
 }
 
@@ -314,6 +321,7 @@ const outputs = computed<TxOutput[]>(() => {
       address: spk?.address,
       addresses: addrs,
       type: spk?.type,
+      asm: typeof spk?.asm === 'string' ? spk.asm : undefined,
       tokenData: o?.tokenData
     }
   })
