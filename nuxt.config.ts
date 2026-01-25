@@ -1,4 +1,7 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+const env = ((globalThis as any).process?.env || {}) as Record<string, string | undefined>
+const siteUrl = (env.NUXT_PUBLIC_SITE_URL || env.SITE_URL || 'https://bchexplorer.info').replace(/\/$/, '')
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   // Nuxt/Vue devtools can crash SSR in some environments (seen as:
@@ -17,19 +20,25 @@ export default defineNuxtConfig({
         // Open Graph
         { property: 'og:site_name', content: 'Bitcoin Cash Explorer' },
         { property: 'og:type', content: 'website' },
+        { property: 'og:url', content: siteUrl },
         { property: 'og:title', content: 'Bitcoin Cash Explorer' },
         { property: 'og:description', content: 'Explore Bitcoin Cash blocks, transactions, and CashTokens with BCMR metadata.' },
-        { property: 'og:image', content: '/og-image.png' },
+        { property: 'og:image', content: `${siteUrl}/og-image.png` },
+        { property: 'og:image:secure_url', content: `${siteUrl}/og-image.png` },
+        { property: 'og:image:alt', content: 'Bitcoin Cash Explorer' },
         { property: 'og:image:width', content: '1200' },
         { property: 'og:image:height', content: '630' },
 
         // Twitter
         { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:domain', content: 'bchexplorer.info' },
         { name: 'twitter:title', content: 'Bitcoin Cash Explorer' },
         { name: 'twitter:description', content: 'Explore Bitcoin Cash blocks, transactions, and CashTokens with BCMR metadata.' },
-        { name: 'twitter:image', content: '/og-image.png' }
+        { name: 'twitter:image', content: `${siteUrl}/og-image.png` },
+        { name: 'twitter:image:alt', content: 'Bitcoin Cash Explorer' }
       ],
       link: [
+        { rel: 'canonical', href: siteUrl },
         { rel: 'icon', type: 'image/png', href: '/favicon/favicon-96x96.png', sizes: '96x96' },
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon/favicon.svg' },
         { rel: 'shortcut icon', href: '/favicon/favicon.ico' },
