@@ -58,6 +58,15 @@
       <div v-else-if="tipError" class="error">Error: {{ tipError.message }}</div>
 
       <ul v-else class="list">
+        <li class="row headerRow" aria-hidden="true">
+          <div class="link headerLink">
+            <span>Height</span>
+            <span>Hash</span>
+            <span>Time</span>
+            <span>Miner</span>
+            <span>Txs</span>
+          </div>
+        </li>
         <li v-for="b in blocks" :key="b.hash" class="row">
           <NuxtLink class="link" :to="`/block/${b.hash}`">
             <span class="mono">#{{ b.height }}</span>
@@ -66,6 +75,7 @@
               <span class="timeRel">{{ formatRelativeTime(b.time) }}</span>
               <span class="timeAbs">{{ formatAbsoluteTime(b.time) }}</span>
             </span>
+            <span class="miner">{{ b.miner || 'Unknown' }}</span>
             <span class="muted">{{ b.txCount }} tx</span>
           </NuxtLink>
         </li>
@@ -115,9 +125,47 @@ const { data: blocks } = await useAsyncData('latestBlocks', async () => {
     hash: b.hash as string,
     height: b.height as number,
     time: typeof b.time === 'number' ? b.time : undefined,
+    miner: extractMinerFromBlock(b),
     txCount: Array.isArray(b.tx) ? b.tx.length : 0
   }))
 })
+
+function extractMinerFromCoinbaseHex(coinbaseHex?: string): string | undefined {
+  if (!coinbaseHex || typeof coinbaseHex !== 'string') return undefined
+  if (!/^[0-9a-fA-F]+$/.test(coinbaseHex) || coinbaseHex.length % 2 !== 0) return undefined
+
+  // Decode to bytes, then keep printable ASCII. Many pools use slash-delimited tags like "/ViaBTC/".
+  let ascii = ''
+  try {
+    if (import.meta.client) {
+      const bytes = new Uint8Array(coinbaseHex.match(/.{1,2}/g)!.map((h) => parseInt(h, 16)))
+      ascii = Array.from(bytes, (b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : ' ')).join('')
+    } else {
+      // Node SSR path
+      // eslint-disable-next-line n/no-deprecated-api
+      const buf = Buffer.from(coinbaseHex, 'hex')
+      ascii = buf.toString('latin1').replace(/[^\x20-\x7E]+/g, ' ')
+    }
+  } catch {
+    return undefined
+  }
+
+  const cleaned = ascii.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return undefined
+
+  // Best-effort: take first slash-delimited tag as "pool" name.
+  const m = cleaned.match(/\/\s*([A-Za-z0-9][A-Za-z0-9 ._-]{0,40}?)\s*\//)
+  if (m?.[1]) return m[1].trim()
+  return undefined
+}
+
+function extractMinerFromBlock(b: any): string | undefined {
+  const tx0 = Array.isArray(b?.tx) ? b.tx[0] : undefined
+  const vin0 = Array.isArray(tx0?.vin) ? tx0.vin[0] : undefined
+  // BCHN typically exposes coinbase script as vin[0].coinbase (hex).
+  const coinbaseHex = typeof vin0?.coinbase === 'string' ? vin0.coinbase : undefined
+  return extractMinerFromCoinbaseHex(coinbaseHex)
+}
 
 function formatAbsoluteTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
@@ -270,13 +318,39 @@ function formatRelativeTime(unixSeconds?: number) {
   background: rgba(17, 24, 39, 0.03);
   border: 1px solid rgba(17, 24, 39, 0.04);
 }
+.headerRow {
+  background: transparent;
+  border: 0;
+  padding: 0 10px;
+}
+.headerLink {
+  padding: 0 0 6px;
+  color: rgba(107, 114, 128, 1);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.headerLink span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .link {
   display: grid;
-  grid-template-columns: 110px 1fr 210px 70px;
+  grid-template-columns: 110px 1fr 210px 140px 70px;
   gap: 12px;
   text-decoration: none;
   color: inherit;
   align-items: baseline;
+}
+.miner {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(55, 65, 81, 1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .time {
   display: grid;
