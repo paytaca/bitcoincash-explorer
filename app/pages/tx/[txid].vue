@@ -16,8 +16,11 @@
           <div class="value">{{ tx.confirmations ?? '—' }}</div>
         </div>
         <div>
-          <div class="label">Time</div>
-          <div class="value">{{ tx.time ? new Date(tx.time * 1000).toLocaleString() : '—' }}</div>
+          <div class="label">{{ timeLabel }}</div>
+          <div class="value">
+            {{ timeValue ? new Date(timeValue * 1000).toLocaleString() : '—' }}
+            <div v-if="timeHint" class="hint">{{ timeHint }}</div>
+          </div>
         </div>
         <div>
           <div class="label">Size</div>
@@ -267,6 +270,20 @@ type TokenData = {
 }
 
 const { data: tx, pending, error } = await useFetch<any>(`/api/bch/tx/${txid}`)
+
+const timeValue = computed<number | undefined>(() => {
+  const t = tx.value
+  const blockTime = typeof t?.time === 'number' ? t.time : typeof t?.blocktime === 'number' ? t.blocktime : undefined
+  const seenTime = typeof t?.seenTime === 'number' ? t.seenTime : undefined
+  return seenTime ?? blockTime
+})
+
+const timeLabel = computed(() => (typeof tx.value?.seenTime === 'number' ? 'Seen time' : 'Block time'))
+
+const timeHint = computed(() => {
+  if (typeof tx.value?.seenTime === 'number') return 'From mempool (not mined yet)'
+  return ''
+})
 
 type TxInput = {
   key: string
@@ -645,6 +662,12 @@ function spentStatusClass(o: TxOutput) {
 }
 .error {
   color: #b42318;
+}
+.hint {
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(107, 114, 128, 1);
+  font-weight: 500;
 }
 </style>
 

@@ -5,6 +5,51 @@
 
     <section class="card">
       <div class="cardHeader">
+        <h2 class="h2">Latest transactions</h2>
+        <div class="muted" v-if="recentTxs?.updatedAt">
+          Updated:
+          <span class="mono">{{ formatAbsoluteTime(recentTxs.updatedAt) }}</span>
+        </div>
+      </div>
+
+      <div v-if="recentPending">Loading…</div>
+      <div v-else-if="recentError" class="error">Error: {{ recentError.message }}</div>
+
+      <div v-else class="txTableWrap">
+        <table class="txTable">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Txid</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in (recentTxs?.items || [])" :key="t.txid">
+              <td>
+                <span class="badge" :class="t.status === 'mempool' ? 'isMempool' : 'isConfirmed'">
+                  <template v-if="t.status === 'mempool'">Mempool</template>
+                  <template v-else>Confirmed</template>
+                </span>
+                <span v-if="t.status === 'confirmed' && t.confirmations" class="muted small">
+                  {{ t.confirmations }} conf
+                </span>
+              </td>
+              <td class="mono">
+                <NuxtLink class="txLink" :to="`/tx/${t.txid}`">{{ t.txid }}</NuxtLink>
+              </td>
+              <td class="timeCell">
+                <span class="timeRel">{{ formatRelativeTime(t.time) }}</span>
+                <span class="timeAbs">{{ formatAbsoluteTime(t.time) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="cardHeader">
         <h2 class="h2">Latest blocks</h2>
         <div class="muted" v-if="tip">Tip: <span class="mono">#{{ tip }}</span></div>
       </div>
@@ -30,6 +75,21 @@
 </template>
 
 <script setup lang="ts">
+type RecentTxItem = {
+  txid: string
+  status: 'mempool' | 'confirmed'
+  time?: number
+  fee?: number
+  size?: number
+  blockHeight?: number
+  confirmations?: number
+}
+
+type RecentTxResponse = {
+  updatedAt: number
+  items: RecentTxItem[]
+}
+
 const chain = useRuntimeConfig().public.chain
 
 const locale = (() => {
@@ -37,6 +97,12 @@ const locale = (() => {
   const al = useRequestHeaders(['accept-language'])['accept-language']
   return al?.split(',')?.[0] || 'en-US'
 })()
+
+const {
+  data: recentTxs,
+  pending: recentPending,
+  error: recentError
+} = await useFetch<RecentTxResponse>('/api/bch/tx/recent')
 
 const { data: tip, pending: tipPending, error: tipError } = await useFetch<number>('/api/bch/blockcount')
 
@@ -87,6 +153,7 @@ function formatRelativeTime(unixSeconds?: number) {
   const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
   return rtf.format(value, unit)
 }
+
 </script>
 
 <style scoped>
@@ -127,6 +194,68 @@ function formatRelativeTime(unixSeconds?: number) {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(55, 65, 81, 1);
+}
+.txTableWrap {
+  overflow-x: auto;
+  border-radius: 12px;
+}
+.txTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.txTable th,
+.txTable td {
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.06);
+  vertical-align: top;
+}
+.txTable th {
+  text-align: left;
+  font-weight: 600;
+  color: rgba(55, 65, 81, 1);
+}
+.txLink {
+  color: inherit;
+  text-decoration: none;
+}
+.txLink:hover {
+  text-decoration: underline;
+}
+.right {
+  text-align: right;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+}
+.badge.isMempool {
+  background: rgba(217, 119, 6, 0.12);
+  color: rgba(146, 64, 14, 1);
+}
+.badge.isConfirmed {
+  background: rgba(16, 185, 129, 0.12);
+  color: rgba(6, 95, 70, 1);
+}
+.small {
+  font-size: 12px;
+}
+.timeCell {
+  display: grid;
+  gap: 2px;
+}
+.timeRel {
+  font-weight: 600;
+  color: rgba(55, 65, 81, 1);
+}
+.timeAbs {
+  font-size: 12px;
+  color: rgba(107, 114, 128, 1);
 }
 .list {
   list-style: none;
