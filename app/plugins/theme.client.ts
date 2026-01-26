@@ -14,4 +14,8 @@ export default defineNuxtPlugin(() => {
   watch(isDark, apply)
   const mq = window.matchMedia('(prefers-color-scheme: dark)')
   mq.addEventListener('change', apply)
+
+  window.addEventListener('theme-toggled', ((e: CustomEvent<{ dark: boolean }>) => {
+    setTheme(e.detail.dark ? 'dark' : 'light')
+  }) as EventListener)
 })

@@ -28,7 +28,7 @@
         </div>
         <div>
           <div class="label">Time</div>
-          <div class="value">{{ new Date(block.time * 1000).toLocaleString() }}</div>
+          <div class="value">{{ new Date(block.time * 1000).toLocaleString(undefined, { timeZoneName: 'short' }) }}</div>
         </div>
         <div>
           <div class="label">Tx count</div>

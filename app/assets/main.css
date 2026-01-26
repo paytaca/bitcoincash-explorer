@@ -82,3 +82,11 @@ a {
   color: inherit;
 }
 
+/* Theme toggle: script sets data-dark so correct icon shows before/without Vue */
+[data-theme-toggle][data-dark="true"] [data-icon="moon"] {
+  display: none;
+}
+[data-theme-toggle][data-dark="false"] [data-icon="sun"] {
+  display: none;
+}
+

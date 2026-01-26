@@ -2,14 +2,9 @@
   <main class="container">
     <h1 class="title">Bitcoin Cash Explorer</h1>
     <p class="muted">Chain: {{ chain }}</p>
-
     <section class="card">
       <div class="cardHeader">
         <h2 class="h2">Latest transactions</h2>
-        <div class="muted" v-if="recentTxs?.updatedAt">
-          Updated:
-          <span class="mono">{{ formatAbsoluteTime(recentTxs.updatedAt) }}</span>
-        </div>
       </div>
 
       <div v-if="recentPending">Loading…</div>
@@ -39,12 +34,17 @@
                 </div>
               </td>
               <td class="amountCell">
-                <template v-if="t.amount !== undefined">{{ formatBch(t.amount) }} <span class="unit">BCH</span></template>
+                <template v-if="t.amount !== undefined">
+                  {{ formatBch(t.amount) }} <span class="unit">BCH</span>
+                  <div v-if="t.hasTokens" class="tokensHint">with tokens</div>
+                </template>
                 <template v-else>—</template>
               </td>
               <td class="timeCell">
-                <span class="timeRel">{{ formatRelativeTime(t.time) }}</span>
-                <span class="timeAbs">{{ formatAbsoluteTime(t.time) }}</span>
+                <div class="timeCellInner">
+                  <span class="timeRel">{{ formatRelativeTime(t.time) }}</span>
+                  <span class="timeAbs">{{ formatAbsoluteTime(t.time) }}</span>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -55,7 +55,6 @@
     <section class="card">
       <div class="cardHeader">
         <h2 class="h2">Latest blocks</h2>
-        <div class="muted" v-if="tip">Tip: <span class="mono">#{{ tip }}</span></div>
       </div>
 
       <div v-if="tipPending">Loading…</div>
@@ -101,6 +100,7 @@ type RecentTxItem = {
   blockHeight?: number
   confirmations?: number
   amount?: number
+  hasTokens?: boolean
 }
 
 type RecentTxResponse = {
@@ -109,6 +109,32 @@ type RecentTxResponse = {
 }
 
 const chain = useRuntimeConfig().public.chain
+
+const fallbackTimestamp = computed(() =>
+  new Date().toLocaleString('en-US', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  })
+)
+
+const clientLocaleDate = computed(() => {
+  if (typeof navigator === 'undefined') return ''
+  return new Date().toLocaleString(navigator.language, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  })
+})
 
 const locale = (() => {
   if (import.meta.client) return navigator.language || 'en-US'
@@ -177,7 +203,7 @@ function extractMinerFromBlock(b: any): string | undefined {
 
 function formatAbsoluteTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
-  return new Date(unixSeconds * 1000).toLocaleString(locale)
+  return new Date(unixSeconds * 1000).toLocaleString(locale, { timeZoneName: 'short' })
 }
 
 function formatRelativeTime(unixSeconds?: number) {
@@ -303,6 +329,14 @@ function formatBch(v: number | undefined) {
   font-weight: 600;
   color: var(--color-text-secondary);
 }
+.amountCell .tokensHint {
+  margin: 0;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+}
 .right {
   text-align: right;
 }
@@ -327,6 +361,9 @@ function formatBch(v: number | undefined) {
   font-size: 12px;
 }
 .timeCell {
+  vertical-align: top;
+}
+.timeCellInner {
   display: grid;
   gap: 2px;
 }

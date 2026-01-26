@@ -30,7 +30,7 @@
         <div>
           <div class="label">{{ timeLabel }}</div>
           <div class="value">
-            {{ timeValue ? new Date(timeValue * 1000).toLocaleString() : '—' }}
+            {{ timeValue ? new Date(timeValue * 1000).toLocaleString(undefined, { timeZoneName: 'short' }) : '—' }}
             <div v-if="timeHint" class="hint">{{ timeHint }}</div>
           </div>
         </div>
@@ -359,7 +359,31 @@ const outputs = computed<TxOutput[]>(() => {
 const totalIn = computed(() => inputs.value.reduce((sum, i) => sum + (i.value || 0), 0))
 const totalOut = computed(() => outputs.value.reduce((sum, o) => sum + (o.value || 0), 0))
 
-const outpointStatus = reactive<Record<number, OutpointStatus>>({})
+const { data: outpointStatusData } = await useAsyncData<Record<number, OutpointStatus>>(
+  () => `txout-${txid}-${(tx.value?.vout?.length ?? 0)}`,
+  async () => {
+    const t = tx.value
+    if (!t?.vout || !Array.isArray(t.vout)) return {}
+    const result: Record<number, OutpointStatus> = {}
+    const vouts = t.vout as any[]
+    await Promise.all(
+      vouts
+        .filter((o: any) => o?.type !== 'nulldata')
+        .map(async (o: any) => {
+          const n = typeof o.n === 'number' ? o.n : vouts.indexOf(o)
+          try {
+            const res = await $fetch<{ status: OutpointStatus }>(`/api/bch/txout/${txid}/${n}`)
+            result[n] = res?.status || 'unknown'
+          } catch {
+            result[n] = 'unknown'
+          }
+        })
+    )
+    return result
+  },
+  { watch: [tx] }
+)
+const outpointStatus = computed(() => outpointStatusData.value ?? {})
 
 const hasAnyToken = computed(() => {
   return (
@@ -367,25 +391,6 @@ const hasAnyToken = computed(() => {
     outputs.value.some((o) => Boolean(o.tokenData?.category))
   )
 })
-
-watch(
-  () => outputs.value.map((o) => o.n),
-  async (ns) => {
-    const uniq = Array.from(new Set(ns))
-    await Promise.all(
-      uniq.map(async (n) => {
-        if (outpointStatus[n]) return
-        try {
-          const res = await $fetch<{ status: OutpointStatus }>(`/api/bch/txout/${txid}/${n}`)
-          outpointStatus[n] = res?.status || 'unknown'
-        } catch {
-          outpointStatus[n] = 'unknown'
-        }
-      })
-    )
-  },
-  { immediate: true }
-)
 
 function normalizeTokenMeta(payload: any): { name?: string; symbol?: string; decimals?: number } {
   // New endpoint: single object
@@ -496,7 +501,7 @@ function formatAmount(amountStr: string, decimals?: number) {
 }
 
 function spentStatusClass(o: TxOutput) {
-  const s = outpointStatus[o.n]
+  const s = outpointStatus.value[o.n]
   return s === 'unspent' ? 'isUnspent' : s === 'spent' ? 'isSpent' : 'isUnknown'
 }
 </script>

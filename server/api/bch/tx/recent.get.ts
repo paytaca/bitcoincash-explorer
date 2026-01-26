@@ -11,6 +11,7 @@ export type RecentTxItem = {
   blockHeight?: number
   confirmations?: number
   amount?: number
+  hasTokens?: boolean
 }
 
 type RecentTxResponse = {
@@ -91,25 +92,30 @@ export default defineEventHandler(async () => {
   const confirmedDeduped = confirmed.filter((c) => !mempoolIds.has(c.txid))
   const items = [...mempool, ...confirmedDeduped].slice(0, RECENT_LIMIT)
 
-  // Fetch total BCH output (sum of vout[].value) for each of the limited items.
-  const amounts = await Promise.all(
+  // Fetch tx details for amount and token detection (verbosity 2 includes tokenData in vin/vout).
+  const txDetails = await Promise.all(
     items.map(async (item) => {
       try {
-        const tx = await bchRpc<any>('getrawtransaction', [item.txid, 1])
+        const tx = await bchRpc<any>('getrawtransaction', [item.txid, 2])
         const vout = Array.isArray(tx?.vout) ? tx.vout : []
-        return vout.reduce(
+        const amount = vout.reduce(
           (sum: number, o: any) => sum + (typeof o?.value === 'number' && Number.isFinite(o.value) ? o.value : 0),
           0
         )
+        const vin = Array.isArray(tx?.vin) ? tx.vin : []
+        const hasTokens =
+          vin.some((v: any) => v?.tokenData != null) || vout.some((o: any) => o?.tokenData != null)
+        return { amount, hasTokens }
       } catch {
-        return undefined
+        return { amount: undefined, hasTokens: false }
       }
     })
   )
 
   const itemsWithAmount: RecentTxItem[] = items.map((item, i) => ({
     ...item,
-    amount: amounts[i]
+    amount: txDetails[i].amount,
+    hasTokens: txDetails[i].hasTokens
   }))
 
   const value: RecentTxResponse = { updatedAt: Math.floor(now / 1000), items: itemsWithAmount }
