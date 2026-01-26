@@ -6,7 +6,19 @@
     <p class="mono">{{ hash }}</p>
 
     <section v-if="pending">Loading…</section>
-    <section v-else-if="error" class="error">Error: {{ error.message }}</section>
+    <section v-else-if="error" class="notFoundCard">
+      <div class="notFoundIcon" aria-hidden="true">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="28" cy="28" r="14"/>
+          <path d="M38 38 L52 52"/>
+        </svg>
+      </div>
+      <h2 class="notFoundTitle">Block not found</h2>
+      <p class="notFoundText">
+        We couldn't find a block with that hash. Double-check the hash or head back to the explorer.
+      </p>
+      <NuxtLink class="notFoundBack" to="/">← Back to explorer</NuxtLink>
+    </section>
 
     <section v-else class="card">
       <div class="grid">
@@ -57,8 +69,11 @@ const txids = computed(() => {
 }
 .back {
   text-decoration: none;
-  color: inherit;
+  color: var(--color-text);
   opacity: 0.8;
+}
+.back:hover {
+  color: var(--color-link);
 }
 .title {
   margin: 12px 0 6px;
@@ -70,9 +85,10 @@ const txids = computed(() => {
 }
 .card {
   margin-top: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   padding: 14px;
+  background: var(--color-bg-card);
 }
 .grid {
   display: grid;
@@ -82,14 +98,16 @@ const txids = computed(() => {
 }
 .label {
   font-size: 12px;
-  opacity: 0.7;
+  color: var(--color-text-muted);
 }
 .value {
   font-size: 14px;
+  color: var(--color-text);
 }
 .h2 {
   margin: 10px 0;
   font-size: 18px;
+  color: var(--color-text-secondary);
 }
 .list {
   list-style: none;
@@ -101,14 +119,66 @@ const txids = computed(() => {
 .row {
   border-radius: 10px;
   padding: 10px 10px;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-border);
 }
 .link {
   text-decoration: none;
   color: inherit;
 }
+.link:hover {
+  color: var(--color-link);
+}
 .error {
-  color: #b42318;
+  color: var(--color-error);
+}
+.notFoundCard {
+  margin-top: 14px;
+  padding: 28px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-bg-card);
+  text-align: center;
+}
+.notFoundIcon {
+  margin: 0 auto 20px;
+  width: 80px;
+  height: 80px;
+  color: var(--color-text-muted);
+}
+.notFoundIcon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.notFoundTitle {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.notFoundText {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.notFoundBack {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-border);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.notFoundBack:hover {
+  background: var(--color-surface-hover, var(--color-surface));
+  border-color: var(--color-border);
 }
 </style>
 

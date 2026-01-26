@@ -14,8 +14,8 @@
 <style scoped>
 .footer {
   margin-top: 28px;
-  border-top: 1px solid rgba(17, 24, 39, 0.08);
-  background: rgba(249, 250, 251, 1);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
 .inner {
   max-width: 960px;
@@ -32,15 +32,16 @@
   align-items: center;
 }
 .muted {
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
   font-size: 13px;
 }
 .link {
-  color: rgba(29, 78, 216, 1);
+  color: var(--color-link);
   text-decoration: none;
   font-weight: 600;
 }
 .link:hover {
+  color: var(--color-link-hover);
   text-decoration: underline;
 }
 </style>

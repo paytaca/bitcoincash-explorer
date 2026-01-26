@@ -19,24 +19,28 @@
         <table class="txTable">
           <thead>
             <tr>
-              <th>Status</th>
               <th>Txid</th>
+              <th>Amount</th>
               <th>Time</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="t in (recentTxs?.items || [])" :key="t.txid">
-              <td>
-                <span class="badge" :class="t.status === 'mempool' ? 'isMempool' : 'isConfirmed'">
-                  <template v-if="t.status === 'mempool'">Mempool</template>
-                  <template v-else>Confirmed</template>
-                </span>
-                <span v-if="t.status === 'confirmed' && t.confirmations" class="muted small">
-                  {{ t.confirmations }} conf
-                </span>
+              <td class="txIdCell">
+                <NuxtLink class="txLink mono" :to="`/tx/${t.txid}`">{{ t.txid }}</NuxtLink>
+                <div class="txStatus">
+                  <span class="badge" :class="t.status === 'mempool' ? 'isMempool' : 'isConfirmed'">
+                    <template v-if="t.status === 'mempool'">Mempool</template>
+                    <template v-else>Confirmed</template>
+                  </span>
+                  <span v-if="t.status === 'confirmed' && t.confirmations" class="muted small">
+                    {{ t.confirmations }} conf
+                  </span>
+                </div>
               </td>
-              <td class="mono">
-                <NuxtLink class="txLink" :to="`/tx/${t.txid}`">{{ t.txid }}</NuxtLink>
+              <td class="amountCell">
+                <template v-if="t.amount !== undefined">{{ formatBch(t.amount) }} <span class="unit">BCH</span></template>
+                <template v-else>—</template>
               </td>
               <td class="timeCell">
                 <span class="timeRel">{{ formatRelativeTime(t.time) }}</span>
@@ -57,29 +61,32 @@
       <div v-if="tipPending">Loading…</div>
       <div v-else-if="tipError" class="error">Error: {{ tipError.message }}</div>
 
-      <ul v-else class="list">
-        <li class="row headerRow" aria-hidden="true">
+      <div v-else class="blockListWrap">
+        <ul class="list">
+          <li class="row headerRow" aria-hidden="true">
           <div class="link headerLink">
             <span>Height</span>
             <span>Hash</span>
-            <span>Time</span>
             <span>Miner</span>
-            <span>Txs</span>
+            <span>Time</span>
           </div>
         </li>
         <li v-for="b in blocks" :key="b.hash" class="row">
           <NuxtLink class="link" :to="`/block/${b.hash}`">
-            <span class="mono">#{{ b.height }}</span>
+            <span class="blockHeightCell">
+              <span class="mono">#{{ b.height }}</span>
+              <span class="muted blockTxCount">{{ b.txCount }} {{ b.txCount === 1 ? 'tx' : 'txs' }}</span>
+            </span>
             <span class="mono hash">{{ b.hash }}</span>
+            <span class="miner">{{ b.miner || 'Unknown' }}</span>
             <span class="time">
               <span class="timeRel">{{ formatRelativeTime(b.time) }}</span>
               <span class="timeAbs">{{ formatAbsoluteTime(b.time) }}</span>
             </span>
-            <span class="miner">{{ b.miner || 'Unknown' }}</span>
-            <span class="muted">{{ b.txCount }} tx</span>
           </NuxtLink>
         </li>
-      </ul>
+        </ul>
+      </div>
     </section>
   </main>
 </template>
@@ -93,6 +100,7 @@ type RecentTxItem = {
   size?: number
   blockHeight?: number
   confirmations?: number
+  amount?: number
 }
 
 type RecentTxResponse = {
@@ -202,6 +210,11 @@ function formatRelativeTime(unixSeconds?: number) {
   return rtf.format(value, unit)
 }
 
+function formatBch(v: number | undefined) {
+  const n = typeof v === 'number' && Number.isFinite(v) ? v : 0
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 8 }).format(n)
+}
+
 </script>
 
 <style scoped>
@@ -220,14 +233,14 @@ function formatRelativeTime(unixSeconds?: number) {
   word-break: break-all;
 }
 .muted {
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
 }
 .card {
   margin-top: 14px;
-  border: 1px solid rgba(17, 24, 39, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
   padding: 14px;
-  background: rgba(255, 255, 255, 1);
+  background: var(--color-bg-card);
 }
 .cardHeader {
   display: flex;
@@ -241,7 +254,7 @@ function formatRelativeTime(unixSeconds?: number) {
   font-size: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
 }
 .txTableWrap {
   overflow-x: auto;
@@ -255,20 +268,40 @@ function formatRelativeTime(unixSeconds?: number) {
 .txTable th,
 .txTable td {
   padding: 10px 8px;
-  border-bottom: 1px solid rgba(17, 24, 39, 0.06);
+  border-bottom: 1px solid var(--color-border-subtle);
   vertical-align: top;
 }
 .txTable th {
   text-align: left;
   font-weight: 600;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
+}
+.txIdCell {
+  display: grid;
+  gap: 4px;
+}
+.txStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .txLink {
   color: inherit;
   text-decoration: none;
+  word-break: break-all;
 }
 .txLink:hover {
   text-decoration: underline;
+}
+.amountCell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 700;
+  color: var(--color-amount);
+}
+.amountCell .unit {
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 .right {
   text-align: right;
@@ -283,12 +316,12 @@ function formatRelativeTime(unixSeconds?: number) {
   margin-right: 8px;
 }
 .badge.isMempool {
-  background: rgba(217, 119, 6, 0.12);
-  color: rgba(146, 64, 14, 1);
+  background: var(--color-badge-mempool-bg);
+  color: var(--color-badge-mempool-fg);
 }
 .badge.isConfirmed {
-  background: rgba(16, 185, 129, 0.12);
-  color: rgba(6, 95, 70, 1);
+  background: var(--color-badge-confirmed-bg);
+  color: var(--color-badge-confirmed-fg);
 }
 .small {
   font-size: 12px;
@@ -297,13 +330,16 @@ function formatRelativeTime(unixSeconds?: number) {
   display: grid;
   gap: 2px;
 }
-.timeRel {
+.timeCell .timeRel {
   font-weight: 600;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
 }
-.timeAbs {
+.timeCell .timeAbs {
   font-size: 12px;
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
+}
+.blockListWrap {
+  border-radius: 12px;
 }
 .list {
   list-style: none;
@@ -315,8 +351,8 @@ function formatRelativeTime(unixSeconds?: number) {
 .row {
   border-radius: 14px;
   padding: 10px 10px;
-  background: rgba(17, 24, 39, 0.03);
-  border: 1px solid rgba(17, 24, 39, 0.04);
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-border);
 }
 .headerRow {
   background: transparent;
@@ -325,29 +361,37 @@ function formatRelativeTime(unixSeconds?: number) {
 }
 .headerLink {
   padding: 0 0 6px;
-  color: rgba(107, 114, 128, 1);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 .headerLink span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 .link {
   display: grid;
-  grid-template-columns: 110px 1fr 210px 140px 70px;
+  grid-template-columns: minmax(0, 90px) minmax(0, 1fr) minmax(0, 120px) auto;
   gap: 12px;
+  width: 100%;
+  font-size: 13px;
   text-decoration: none;
   color: inherit;
   align-items: baseline;
+  box-sizing: border-box;
+}
+.link > * {
+  min-width: 0;
+}
+.link > .time {
+  min-width: min-content;
 }
 .miner {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -355,22 +399,45 @@ function formatRelativeTime(unixSeconds?: number) {
 .time {
   display: grid;
   gap: 2px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
-.timeRel {
+.time .timeRel {
   font-weight: 600;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
 }
-.timeAbs {
+.time .timeAbs {
   font-size: 12px;
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
+}
+.blockHeightCell {
+  display: grid;
+  gap: 2px;
+}
+.blockTxCount {
+  font-size: 12px;
 }
 .hash {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all;
+}
+@media (max-width: 768px) {
+  .blockListWrap .headerLink span:nth-child(2) {
+    display: none;
+  }
+  .blockListWrap .link > .hash {
+    display: none;
+  }
+  .blockListWrap .link {
+    grid-template-columns: minmax(0, 90px) minmax(0, 1fr) minmax(0, 120px);
+  }
+  .blockListWrap .link > .time {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 }
 .error {
-  color: #b42318;
+  color: var(--color-error);
 }
 </style>
 

@@ -20,12 +20,31 @@
           aria-label="Search transaction by txid"
         />
       </form>
+
+      <button
+        type="button"
+        class="themeSwitcher"
+        :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+        :title="isDark ? 'Light mode' : 'Dark mode'"
+        @click="toggleTheme"
+      >
+        <span class="iconWrap" aria-hidden="true">
+          <svg v-if="isDark" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+          </svg>
+          <svg v-else class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </span>
+      </button>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
 const route = useRoute()
+const { isDark, toggleTheme } = useTheme()
 const q = ref('')
 const invalid = ref(false)
 
@@ -59,9 +78,9 @@ watch(
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(249, 250, 251, 0.9);
+  background: var(--color-bg-header);
   backdrop-filter: blur(8px);
-  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+  border-bottom: 1px solid var(--color-border);
 }
 .inner {
   max-width: 960px;
@@ -77,13 +96,13 @@ watch(
   align-items: center;
   gap: 10px;
   text-decoration: none;
-  color: rgba(17, 24, 39, 1);
+  color: var(--color-text);
   cursor: pointer;
   padding: 6px 0;
   border-radius: 10px;
 }
 .brand:hover {
-  color: rgba(29, 78, 216, 1);
+  color: var(--color-link);
 }
 .logo {
   width: 22px;
@@ -104,18 +123,50 @@ watch(
   width: min(520px, 100%);
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(17, 24, 39, 0.12);
-  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--color-input-border);
+  background: var(--color-bg-input);
+  color: var(--color-text);
   outline: none;
   font-size: 14px;
 }
+.input::placeholder {
+  color: var(--color-text-muted);
+}
 .input:focus {
-  border-color: rgba(29, 78, 216, 0.65);
-  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 .input.invalid {
-  border-color: rgba(180, 35, 24, 0.6);
-  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+  border-color: var(--color-error-border);
+  box-shadow: 0 0 0 3px var(--color-error-ring);
+}
+.themeSwitcher {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.themeSwitcher:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border-subtle);
+}
+.iconWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon {
+  width: 20px;
+  height: 20px;
 }
 </style>
 

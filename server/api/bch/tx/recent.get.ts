@@ -10,6 +10,7 @@ export type RecentTxItem = {
   size?: number
   blockHeight?: number
   confirmations?: number
+  amount?: number
 }
 
 type RecentTxResponse = {
@@ -20,6 +21,7 @@ type RecentTxResponse = {
 const CACHE_MS = 5_000
 const MEMPOOL_LIMIT = 25
 const CONFIRMED_LIMIT = 25
+const RECENT_LIMIT = 15
 const BLOCKS_TO_SCAN = 3
 
 let cache: { at: number; value: RecentTxResponse } | null = null
@@ -87,9 +89,30 @@ export default defineEventHandler(async () => {
   // Also dedupe in case a tx just got mined while we were fetching.
   const mempoolIds = new Set(mempool.map((m) => m.txid))
   const confirmedDeduped = confirmed.filter((c) => !mempoolIds.has(c.txid))
-  const items = [...mempool, ...confirmedDeduped].slice(0, MEMPOOL_LIMIT + CONFIRMED_LIMIT)
+  const items = [...mempool, ...confirmedDeduped].slice(0, RECENT_LIMIT)
 
-  const value: RecentTxResponse = { updatedAt: Math.floor(now / 1000), items }
+  // Fetch total BCH output (sum of vout[].value) for each of the limited items.
+  const amounts = await Promise.all(
+    items.map(async (item) => {
+      try {
+        const tx = await bchRpc<any>('getrawtransaction', [item.txid, 1])
+        const vout = Array.isArray(tx?.vout) ? tx.vout : []
+        return vout.reduce(
+          (sum: number, o: any) => sum + (typeof o?.value === 'number' && Number.isFinite(o.value) ? o.value : 0),
+          0
+        )
+      } catch {
+        return undefined
+      }
+    })
+  )
+
+  const itemsWithAmount: RecentTxItem[] = items.map((item, i) => ({
+    ...item,
+    amount: amounts[i]
+  }))
+
+  const value: RecentTxResponse = { updatedAt: Math.floor(now / 1000), items: itemsWithAmount }
   cache = { at: now, value }
   return value
 })

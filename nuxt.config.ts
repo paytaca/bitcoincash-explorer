@@ -37,6 +37,9 @@ export default defineNuxtConfig({
         { name: 'twitter:image', content: `${siteUrl}/og-image.png` },
         { name: 'twitter:image:alt', content: 'Bitcoin Cash Explorer' }
       ],
+      script: [
+        { key: 'theme-init', src: '/theme-init.js', tagPosition: 'head' }
+      ],
       link: [
         { rel: 'canonical', href: siteUrl },
         { rel: 'icon', type: 'image/png', href: '/favicon/favicon-96x96.png', sizes: '96x96' },

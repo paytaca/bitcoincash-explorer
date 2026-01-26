@@ -6,7 +6,19 @@
     <p class="mono">{{ txid }}</p>
 
     <section v-if="pending">Loading…</section>
-    <section v-else-if="error" class="error">Error: {{ error.message }}</section>
+    <section v-else-if="error" class="notFoundCard">
+      <div class="notFoundIcon" aria-hidden="true">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="28" cy="28" r="14"/>
+          <path d="M38 38 L52 52"/>
+        </svg>
+      </div>
+      <h2 class="notFoundTitle">Transaction not found</h2>
+      <p class="notFoundText">
+        We couldn't find a transaction with that ID. Double-check the txid or head back to the explorer.
+      </p>
+      <NuxtLink class="notFoundBack" to="/">← Back to explorer</NuxtLink>
+    </section>
 
     <section v-else class="card">
       <h2 class="h2">Summary</h2>
@@ -413,6 +425,18 @@ function normalizeTokenMeta(payload: any): { name?: string; symbol?: string; dec
 
 const metaByCategory = reactive<Record<string, { name?: string; symbol?: string; decimals?: number }>>({})
 
+// Use server-provided token metadata when present (tx API enriches with BCMR data).
+watch(
+  () => tx.value?.tokenMeta,
+  (tokenMeta) => {
+    if (tokenMeta && typeof tokenMeta === 'object' && !Array.isArray(tokenMeta)) {
+      Object.assign(metaByCategory, tokenMeta)
+    }
+  },
+  { immediate: true }
+)
+
+// Fallback: fetch from /api/bcmr/token/ for categories not yet in metaByCategory.
 watch(
   () => {
     const inCats = inputs.value.map((i) => i.tokenData?.category).filter(Boolean) as string[]
@@ -483,13 +507,16 @@ function spentStatusClass(o: TxOutput) {
   margin: 24px auto;
   padding: 0 16px;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-  color: rgba(17, 24, 39, 1);
+  color: var(--color-text);
 }
 .back {
   text-decoration: none;
-  color: inherit;
+  color: var(--color-text);
   opacity: 0.75;
   font-weight: 500;
+}
+.back:hover {
+  color: var(--color-link);
 }
 .title {
   margin: 12px 0 6px;
@@ -501,21 +528,21 @@ function spentStatusClass(o: TxOutput) {
   word-break: break-all;
 }
 .muted {
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
 }
 .card {
   margin-top: 14px;
-  border: 1px solid rgba(17, 24, 39, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
   padding: 14px;
-  background: rgba(255, 255, 255, 1);
+  background: var(--color-bg-card);
 }
 .h2 {
   margin: 16px 0 10px 0;
   font-size: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
 }
 .grid {
   display: grid;
@@ -529,8 +556,8 @@ function spentStatusClass(o: TxOutput) {
 }
 .segmented {
   display: inline-flex;
-  background: rgba(17, 24, 39, 0.04);
-  border: 1px solid rgba(17, 24, 39, 0.06);
+  background: var(--color-segmented-bg);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
   padding: 3px;
   gap: 3px;
@@ -543,12 +570,12 @@ function spentStatusClass(o: TxOutput) {
   font-size: 12px;
   letter-spacing: 0.02em;
   cursor: pointer;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
 }
 .segBtn.active {
-  background: rgba(255, 255, 255, 1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-  color: rgba(17, 24, 39, 1);
+  background: var(--color-segmented-active);
+  box-shadow: var(--shadow-segmented);
+  color: var(--color-text);
   font-weight: 600;
 }
 .value {
@@ -564,7 +591,8 @@ function spentStatusClass(o: TxOutput) {
 .pill {
   padding: 8px 10px;
   border-radius: 999px;
-  background: rgba(17, 24, 39, 0.04);
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-border);
   display: inline-flex;
   gap: 8px;
   align-items: baseline;
@@ -579,8 +607,8 @@ function spentStatusClass(o: TxOutput) {
 .row {
   border-radius: 14px;
   padding: 10px 10px;
-  background: rgba(17, 24, 39, 0.03);
-  border: 1px solid rgba(17, 24, 39, 0.04);
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-border);
 }
 .rowTop {
   display: flex;
@@ -607,13 +635,13 @@ function spentStatusClass(o: TxOutput) {
   height: 18px;
 }
 .spentIcon.isUnspent {
-  color: rgba(6, 95, 70, 1);
+  color: var(--color-icon-unspent);
 }
 .spentIcon.isSpent {
-  color: rgba(185, 28, 28, 1);
+  color: var(--color-icon-spent);
 }
 .spentIcon.isUnknown {
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
 }
 .line {
   display: grid;
@@ -624,49 +652,98 @@ function spentStatusClass(o: TxOutput) {
 .tokenBox {
   margin-top: 8px;
   padding-top: 10px;
-  border-top: 1px dashed rgba(17, 24, 39, 0.14);
+  border-top: 1px dashed var(--color-border);
 }
 .tokenTitle {
   font-weight: 600;
   margin-bottom: 6px;
-  color: rgba(29, 78, 216, 1);
+  color: var(--color-link);
 }
 .label {
   font-size: 12px;
   letter-spacing: 0.02em;
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
 }
 .addr {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   word-break: break-all;
-  color: rgba(17, 24, 39, 0.95);
+  color: var(--color-text);
 }
 .tokenName {
   font-weight: 600;
-  color: rgba(17, 24, 39, 0.92);
+  color: var(--color-text);
 }
 .amount {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-weight: 700;
-  color: rgba(6, 95, 70, 1);
+  color: var(--color-amount);
 }
 .unit {
   font-weight: 600;
-  color: rgba(55, 65, 81, 1);
+  color: var(--color-text-secondary);
 }
 .details {
   margin-top: 14px;
 }
 .pre {
   white-space: pre-wrap;
+  color: var(--color-text);
 }
 .error {
-  color: #b42318;
+  color: var(--color-error);
+}
+.notFoundCard {
+  margin-top: 14px;
+  padding: 28px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-bg-card);
+  text-align: center;
+}
+.notFoundIcon {
+  margin: 0 auto 20px;
+  width: 80px;
+  height: 80px;
+  color: var(--color-text-muted);
+}
+.notFoundIcon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.notFoundTitle {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.notFoundText {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.notFoundBack {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-border);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.notFoundBack:hover {
+  background: var(--color-surface-hover, var(--color-surface));
+  border-color: var(--color-border);
 }
 .hint {
   margin-top: 2px;
   font-size: 12px;
-  color: rgba(107, 114, 128, 1);
+  color: var(--color-text-muted);
   font-weight: 500;
 }
 </style>
