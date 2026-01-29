@@ -126,10 +126,11 @@ watch(
   max-width: 960px;
   margin: 0 auto;
   padding: 14px 16px;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  column-gap: 14px;
+  row-gap: 12px;
 }
 .brand {
   display: inline-flex;
@@ -140,6 +141,7 @@ watch(
   cursor: pointer;
   padding: 6px 0;
   border-radius: 10px;
+  min-width: 0;
 }
 .brand:hover {
   color: var(--color-link);
@@ -153,18 +155,25 @@ watch(
   font-weight: 700;
   letter-spacing: -0.02em;
   font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .search {
-  flex: 1;
   display: flex;
-  justify-content: flex-end;
+  min-width: 0;
 }
 .searchWrap {
-  width: min(520px, 100%);
+  width: 100%;
+  max-width: 520px;
   display: block;
+  min-width: 0;
+  margin-left: auto;
+  box-sizing: border-box;
 }
 .input {
   width: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid var(--color-input-border);
@@ -211,6 +220,35 @@ watch(
 .icon {
   width: 20px;
   height: 20px;
+}
+
+@media (max-width: 720px) {
+  .inner {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand theme"
+      "search search";
+  }
+  .brand {
+    grid-area: brand;
+  }
+  .search {
+    grid-area: search;
+  }
+  .themeSwitcher {
+    grid-area: theme;
+  }
+  .searchWrap {
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .title {
+    display: none;
+  }
 }
 </style>
 

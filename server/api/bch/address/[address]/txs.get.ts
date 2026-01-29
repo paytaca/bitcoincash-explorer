@@ -272,13 +272,19 @@ export default defineEventHandler(async (event) => {
     const tip = await fulcrum.request<{ height: number }>('blockchain.headers.subscribe', [])
     const tipHeight = Number(tip?.height ?? 0)
 
-    const bal = await fulcrum.request<AddressBalance>('blockchain.address.get_balance', [
-      address,
-      'include_tokens'
-    ])
+    // Prefer scripthash-based calls for consistency with history queries.
+    // Some Fulcrum setups can behave differently between `blockchain.address.*` and
+    // `blockchain.scripthash.*` methods; using scripthash avoids any address parsing ambiguity.
+    let bal: any
+    try {
+      bal = await fulcrum.request<any>('blockchain.scripthash.get_balance', [scripthash])
+    } catch {
+      // fallback to address-based method (older/compat)
+      bal = await fulcrum.request<any>('blockchain.address.get_balance', [address, 'include_tokens'])
+    }
     const balance: AddressBalance = {
-      confirmed: Number((bal as any)?.confirmed ?? 0),
-      unconfirmed: Number((bal as any)?.unconfirmed ?? 0)
+      confirmed: Number(bal?.confirmed ?? 0),
+      unconfirmed: Number(bal?.unconfirmed ?? 0)
     }
 
     // Token balances: aggregate token UTXOs by category (Fulcrum provides token_data per UTXO).
@@ -293,7 +299,13 @@ export default defineEventHandler(async (event) => {
     let tokenBalances: AddressTokenBalance[] = []
     const tokenMeta: Record<string, { name?: string; symbol?: string; decimals?: number }> = {}
     try {
-      const utxos = await fulcrum.request<FulcrumUtxo[]>('blockchain.address.listunspent', [address, 'tokens_only'])
+      let utxos: FulcrumUtxo[] = []
+      try {
+        utxos = await fulcrum.request<FulcrumUtxo[]>('blockchain.scripthash.listunspent', [scripthash, 'tokens_only'])
+      } catch {
+        // fallback to address-based method (older/compat)
+        utxos = await fulcrum.request<FulcrumUtxo[]>('blockchain.address.listunspent', [address, 'tokens_only'])
+      }
       const byCat = new Map<
         string,
         { fungible: bigint; nftNone: number; nftMutable: number; nftMinting: number; utxos: number }

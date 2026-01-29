@@ -4,8 +4,11 @@
       <div class="left muted">
         <a class="link" href="https://github.com/paytaca/bitcoincash-explorer" target="_blank" rel="noreferrer">GitHub</a>
       </div>
-      <div class="right muted">
+      <div class="center muted">
         Made with ❤️ by <a class="link" href="https://www.paytaca.com" target="_blank" rel="noreferrer">&nbsp;Paytaca</a>
+      </div>
+      <div class="right muted">
+        <NuxtLink class="link" to="/status">Status</NuxtLink>
       </div>
     </div>
   </footer>
@@ -21,15 +24,23 @@
   max-width: 960px;
   margin: 0 auto;
   padding: 18px 16px 26px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
 .left,
+.center,
 .right {
   display: flex;
   align-items: center;
+}
+.center {
+  justify-content: center;
+  text-align: center;
+}
+.right {
+  justify-content: flex-end;
 }
 .muted {
   color: var(--color-text-muted);
@@ -43,6 +54,19 @@
 .link:hover {
   color: var(--color-link-hover);
   text-decoration: underline;
+}
+
+@media (max-width: 520px) {
+  .inner {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    justify-items: center;
+  }
+  .left,
+  .center,
+  .right {
+    justify-content: center;
+  }
 }
 </style>
 
