@@ -6,19 +6,24 @@
         <span class="title">Bitcoin Cash Explorer</span>
       </NuxtLink>
 
-      <form class="search" @submit.prevent="onSubmit">
-        <input
-          v-model="q"
-          class="input"
-          :class="{ invalid }"
-          type="text"
-          inputmode="search"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-          placeholder="Search transaction…"
-          aria-label="Search transaction by txid"
-        />
+      <form class="search" action="/search" method="get" @submit.prevent="onSubmit">
+        <div class="searchWrap">
+          <input
+            v-model="q"
+            name="q"
+            class="input"
+            :class="{ invalid }"
+            type="text"
+            inputmode="search"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="Search transaction or address…"
+            aria-label="Search by txid or address"
+            @keydown.enter.prevent="onSubmit"
+            @input="invalid = false"
+          />
+        </div>
       </form>
 
       <button
@@ -45,6 +50,7 @@
 
 <script setup lang="ts">
 const route = useRoute()
+const router = useRouter()
 const { isDark } = useTheme()
 const q = ref('')
 const invalid = ref(false)
@@ -53,19 +59,52 @@ function normalizeTxid(v: string) {
   return v.trim().toLowerCase().replace(/^0x/, '')
 }
 
+function normalizeQuery(v: string) {
+  return v.trim()
+}
+
+function looksLikeCashAddress(input: string): boolean {
+  const v = input.trim().toLowerCase()
+  if (!v) return false
+
+  const hasPrefix = v.includes(':')
+  const prefix = hasPrefix ? v.split(':', 1)[0] : ''
+  const payload = hasPrefix ? v.split(':').slice(1).join(':') : v
+
+  if (hasPrefix && !['bitcoincash', 'bchtest', 'bchreg'].includes(prefix)) return false
+
+  // Accept common cashaddr payload starts: q/p (cash), z/r (token-aware).
+  return /^[qpzr][0-9a-z]{20,}$/i.test(payload)
+}
+
 async function onSubmit() {
-  const txid = normalizeTxid(q.value)
-  const ok = /^[0-9a-f]{64}$/.test(txid)
-  invalid.value = !ok
-  if (!ok) return
-  q.value = txid
-  await navigateTo(`/tx/${txid}`)
+  const raw = normalizeQuery(q.value)
+  const txid = normalizeTxid(raw)
+  if (/^[0-9a-f]{64}$/.test(txid)) {
+    invalid.value = false
+    q.value = txid
+    await router.push(`/tx/${txid}`)
+    return
+  }
+
+  if (!looksLikeCashAddress(raw)) {
+    // Fallback to server-side /search (works even if something subtle is off client-side)
+    invalid.value = false
+    window.location.href = `/search?q=${encodeURIComponent(raw)}`
+    return
+  }
+
+  // Keep whatever the user typed (with/without prefix). Our server endpoint can
+  // handle both, and we also decodeURIComponent server-side.
+  invalid.value = false
+  q.value = raw
+  await router.push(`/address/${encodeURIComponent(raw)}`)
 }
 
 watch(
   () => route.path,
   (path) => {
-    if (/^\/tx\/[0-9a-f]{64}$/.test(path)) {
+    if (/^\/tx\/[0-9a-f]{64}$/.test(path) || /^\/address\/[^/]+$/.test(path)) {
       q.value = ''
       invalid.value = false
     }
@@ -120,8 +159,12 @@ watch(
   display: flex;
   justify-content: flex-end;
 }
-.input {
+.searchWrap {
   width: min(520px, 100%);
+  display: block;
+}
+.input {
+  width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid var(--color-input-border);

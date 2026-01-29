@@ -84,7 +84,12 @@
 
           <div class="line">
             <span class="label">From</span>
-            <span class="addr">{{ formatAddress(i.address) || i.type || '—' }}</span>
+            <span class="addr">
+              <template v-if="i.address">
+                <NuxtLink class="addrLink" :to="addressLink(i.address)">{{ formatAddress(i.address) }}</NuxtLink>
+              </template>
+              <template v-else>{{ i.type || '—' }}</template>
+            </span>
           </div>
 
           <div class="line">
@@ -209,11 +214,16 @@
           <div class="line">
             <span class="label">{{ o.type === 'nulldata' ? 'Data' : 'To' }}</span>
             <span class="addr">
-              {{
-                o.type === 'nulldata'
-                  ? o.asm || '—'
-                  : formatOutputAddresses(o) || o.type || '—'
-              }}
+              <template v-if="o.type === 'nulldata'">{{ o.asm || '—' }}</template>
+              <template v-else>
+                <template v-if="outputAddressList(o).length">
+                  <template v-for="(a, idx) in outputAddressList(o)" :key="a.raw">
+                    <NuxtLink class="addrLink" :to="addressLink(a.raw)">{{ a.display }}</NuxtLink
+                    ><span v-if="idx < outputAddressList(o).length - 1">, </span>
+                  </template>
+                </template>
+                <template v-else>{{ o.type || '—' }}</template>
+              </template>
             </span>
           </div>
 
@@ -477,6 +487,15 @@ function formatAddress(addr?: string) {
   return convertCashAddrDisplay(addr, addressMode.value)
 }
 
+function addressLink(addr: string) {
+  return `/address/${encodeURIComponent(addr)}`
+}
+
+function outputAddressList(o: TxOutput): { raw: string; display: string }[] {
+  const list = o.addresses?.length ? o.addresses : o.address ? [o.address] : []
+  return list.filter(Boolean).map((raw) => ({ raw, display: convertCashAddrDisplay(raw, addressMode.value) }))
+}
+
 function formatOutputAddresses(o: TxOutput) {
   const list = o.addresses?.length ? o.addresses : o.address ? [o.address] : []
   if (list.length === 0) return ''
@@ -673,6 +692,14 @@ function spentStatusClass(o: TxOutput) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   word-break: break-all;
   color: var(--color-text);
+}
+.addrLink {
+  color: inherit;
+  text-decoration: none;
+}
+.addrLink:hover {
+  text-decoration: underline;
+  color: var(--color-link);
 }
 .tokenName {
   font-weight: 600;

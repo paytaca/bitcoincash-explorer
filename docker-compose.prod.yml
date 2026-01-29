@@ -19,6 +19,9 @@ services:
       NUXT_BCH_RPC_USER: ${BCH_RPC_USER}
       NUXT_BCH_RPC_PASS: ${BCH_RPC_PASS}
       NUXT_BCMR_BASE_URL: ${BCMR_BASE_URL:-https://bcmr.paytaca.com}
+      NUXT_FULCRUM_HOST: ${FULCRUM_HOST:-127.0.0.1}
+      NUXT_FULCRUM_PORT: ${FULCRUM_PORT:-60001}
+      NUXT_FULCRUM_TIMEOUT_MS: ${FULCRUM_TIMEOUT_MS:-10000}
       NUXT_PUBLIC_CHAIN: ${CHAIN:-mainnet}
     # Keep secrets/config on the server, not in git.
     env_file:

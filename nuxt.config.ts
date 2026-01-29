@@ -64,6 +64,12 @@ export default defineNuxtConfig({
     // - NUXT_BCMR_BASE_URL
     bcmrBaseUrl: 'https://bcmr.paytaca.com',
 
+    // Fulcrum (Electrum server)
+    // - NUXT_FULCRUM_HOST / NUXT_FULCRUM_PORT / NUXT_FULCRUM_TIMEOUT_MS
+    fulcrumHost: '127.0.0.1',
+    fulcrumPort: 60001,
+    fulcrumTimeoutMs: 10_000,
+
     public: {
       // - NUXT_PUBLIC_CHAIN
       chain: 'mainnet'
