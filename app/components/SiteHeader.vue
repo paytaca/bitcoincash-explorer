@@ -231,6 +231,7 @@ watch(
   }
   .brand {
     grid-area: brand;
+    padding: 4px 0;
   }
   .search {
     grid-area: search;
@@ -243,11 +244,9 @@ watch(
     max-width: none;
     margin-left: 0;
   }
-}
-
-@media (max-width: 520px) {
   .title {
-    display: none;
+    font-size: 15px;
+    max-width: 100%;
   }
 }
 </style>
