@@ -2,8 +2,23 @@
   <main class="container">
     <NuxtLink class="back" to="/">← Back</NuxtLink>
 
-    <h1 class="title">Address</h1>
-    <p class="mono">{{ address }}</p>
+    <div class="pageHead">
+      <div class="pageHeadLeft">
+        <h1 class="title">Address</h1>
+        <p class="mono">{{ displayAddress }}</p>
+      </div>
+
+      <div class="addressToggle">
+        <div class="segmented" role="group" aria-label="Address display mode">
+          <button class="segBtn" :class="{ active: addressMode === 'cash' }" type="button" @click="setAddressMode('cash')">
+            Cash address
+          </button>
+          <button class="segBtn" :class="{ active: addressMode === 'token' }" type="button" @click="setAddressMode('token')">
+            Token address
+          </button>
+        </div>
+      </div>
+    </div>
 
     <section class="card">
       <div class="cardHeader">
@@ -143,6 +158,9 @@
 </template>
 
 <script setup lang="ts">
+import type { AddressDisplayMode } from '~/utils/addressFormat'
+import { convertCashAddrDisplay } from '~/utils/addressFormat'
+
 type AddressTxItem = {
   txid: string
   status: 'mempool' | 'confirmed'
@@ -169,11 +187,16 @@ type AddressTxResponse = {
 const route = useRoute()
 const address = String(route.params.address || '')
 
-const locale = (() => {
-  if (import.meta.client) return navigator.language || 'en-US'
-  const al = useRequestHeaders(['accept-language'])['accept-language']
-  return al?.split(',')?.[0] || 'en-US'
-})()
+const addressMode = useAddressDisplayMode()
+const stableNow = useStableNow()
+
+function setAddressMode(mode: AddressDisplayMode) {
+  addressMode.value = mode
+}
+
+const displayAddress = computed(() => convertCashAddrDisplay(address, addressMode.value))
+
+const locale = usePageLocale()
 
 const { data, pending, error } = await useFetch<AddressTxResponse>(
   () => {
@@ -263,12 +286,12 @@ async function goOlder() {
 
 function formatAbsoluteTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
-  return new Date(unixSeconds * 1000).toLocaleString(locale, { timeZoneName: 'short' })
+  return new Date(unixSeconds * 1000).toLocaleString(locale.value, { timeZone: 'UTC', timeZoneName: 'short' })
 }
 
 function formatRelativeTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
-  const diffMs = unixSeconds * 1000 - Date.now()
+  const diffMs = unixSeconds * 1000 - stableNow.value
   const abs = Math.abs(diffMs)
 
   const minute = 60_000
@@ -292,7 +315,7 @@ function formatRelativeTime(unixSeconds?: number) {
     unit = 'week'
   }
 
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+  const rtf = new Intl.RelativeTimeFormat(locale.value, { numeric: 'auto' })
   return rtf.format(value, unit)
 }
 
@@ -303,7 +326,7 @@ function formatBch(v: number | undefined) {
   if (n !== 0 && Math.abs(n) < 1) {
     return n.toFixed(8).replace(/\.?0+$/, '')
   }
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 8 }).format(n)
+  return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 8 }).format(n)
 }
 
 function formatSignedBch(net: number) {
@@ -321,6 +344,15 @@ function formatSignedBch(net: number) {
   padding: 0 16px;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   color: var(--color-text);
+}
+.pageHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pageHeadLeft {
+  min-width: 0;
 }
 .back {
   text-decoration: none;
@@ -349,6 +381,36 @@ function formatSignedBch(net: number) {
   border-radius: 16px;
   padding: 14px;
   background: var(--color-bg-card);
+}
+.addressToggle {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+.segmented {
+  display: inline-flex;
+  background: var(--color-segmented-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 3px;
+}
+.segBtn {
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+.segBtn.active {
+  background: var(--color-segmented-active);
+  box-shadow: var(--shadow-segmented);
+  color: var(--color-text);
+  font-weight: 600;
 }
 .cardHeader {
   display: flex;

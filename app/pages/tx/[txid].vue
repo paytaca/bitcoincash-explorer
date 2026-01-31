@@ -30,7 +30,7 @@
         <div>
           <div class="label">{{ timeLabel }}</div>
           <div class="value">
-            {{ timeValue ? new Date(timeValue * 1000).toLocaleString(undefined, { timeZoneName: 'short' }) : '—' }}
+            {{ timeValue ? new Date(timeValue * 1000).toLocaleString(locale, { timeZone: 'UTC', timeZoneName: 'short' }) : '—' }}
             <div v-if="timeHint" class="hint">{{ timeHint }}</div>
           </div>
         </div>
@@ -52,12 +52,12 @@
         </div>
       </div>
 
-      <div v-if="hasAnyToken" class="addressToggle">
+      <div class="addressToggle">
         <div class="segmented" role="group" aria-label="Address display mode">
-          <button class="segBtn" :class="{ active: addressMode === 'cash' }" type="button" @click="addressMode = 'cash'">
+          <button class="segBtn" :class="{ active: addressMode === 'cash' }" type="button" @click="setAddressMode('cash')">
             Cash address
           </button>
-          <button class="segBtn" :class="{ active: addressMode === 'token' }" type="button" @click="addressMode = 'token'">
+          <button class="segBtn" :class="{ active: addressMode === 'token' }" type="button" @click="setAddressMode('token')">
             Token address
           </button>
         </div>
@@ -271,18 +271,12 @@ import { convertCashAddrDisplay } from '~/utils/addressFormat'
 const route = useRoute()
 const txid = String(route.params.txid)
 
-const locale = (() => {
-  if (import.meta.client) return navigator.language || 'en-US'
-  const al = useRequestHeaders(['accept-language'])['accept-language']
-  return al?.split(',')?.[0] || 'en-US'
-})()
+const locale = usePageLocale()
 
-const addressMode = ref<AddressDisplayMode>('cash')
+const addressMode = useAddressDisplayMode()
 
-if (import.meta.client) {
-  const saved = localStorage.getItem('bchexplorer.addressMode') as AddressDisplayMode | null
-  if (saved === 'cash' || saved === 'token') addressMode.value = saved
-  watch(addressMode, (v) => localStorage.setItem('bchexplorer.addressMode', v))
+function setAddressMode(mode: AddressDisplayMode) {
+  addressMode.value = mode
 }
 
 type TokenData = {
@@ -479,7 +473,7 @@ watch(
 function formatBch(v: unknown) {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : 0
   // BCH values are up to 8 decimals.
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 8 }).format(n)
+  return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 8 }).format(n)
 }
 
 function formatAddress(addr?: string) {
@@ -505,11 +499,11 @@ function formatOutputAddresses(o: TxOutput) {
 function formatAmount(amountStr: string, decimals?: number) {
   const dec = Number.isFinite(decimals) ? Number(decimals) : 0
   const amt = BigInt(amountStr)
-  const intFmt = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
+  const intFmt = new Intl.NumberFormat(locale.value, { maximumFractionDigits: 0 })
 
   if (dec <= 0) return intFmt.format(amt)
 
-  const parts = new Intl.NumberFormat(locale).formatToParts(1.1)
+  const parts = new Intl.NumberFormat(locale.value).formatToParts(1.1)
   const decimalSep = parts.find((p) => p.type === 'decimal')?.value || '.'
 
   const base = BigInt(10) ** BigInt(dec)

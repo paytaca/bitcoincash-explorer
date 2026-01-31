@@ -9,6 +9,17 @@ export default defineNuxtConfig({
   // Re-enable once your environment is stable.
   devtools: { enabled: false },
   css: ['~/assets/main.css'],
+  vite: {
+    build: {
+      // Cloudflare/Safari can intermittently fail fetching some module chunks over HTTP/2
+      // (e.g. filenames ending in `-.js`). Using hex hashes avoids `-`/`_` characters in filenames.
+      rollupOptions: {
+        output: {
+          hashCharacters: 'hex'
+        }
+      }
+    }
+  },
   app: {
     head: {
       title: 'Bitcoin Cash Explorer',

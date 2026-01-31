@@ -136,11 +136,8 @@ const clientLocaleDate = computed(() => {
   })
 })
 
-const locale = (() => {
-  if (import.meta.client) return navigator.language || 'en-US'
-  const al = useRequestHeaders(['accept-language'])['accept-language']
-  return al?.split(',')?.[0] || 'en-US'
-})()
+const locale = usePageLocale()
+const stableNow = useStableNow()
 
 const {
   data: recentTxs,
@@ -203,12 +200,12 @@ function extractMinerFromBlock(b: any): string | undefined {
 
 function formatAbsoluteTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
-  return new Date(unixSeconds * 1000).toLocaleString(locale, { timeZoneName: 'short' })
+  return new Date(unixSeconds * 1000).toLocaleString(locale.value, { timeZone: 'UTC', timeZoneName: 'short' })
 }
 
 function formatRelativeTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
-  const diffMs = unixSeconds * 1000 - Date.now()
+  const diffMs = unixSeconds * 1000 - stableNow.value
   const abs = Math.abs(diffMs)
 
   const minute = 60_000
@@ -232,13 +229,13 @@ function formatRelativeTime(unixSeconds?: number) {
     unit = 'week'
   }
 
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+  const rtf = new Intl.RelativeTimeFormat(locale.value, { numeric: 'auto' })
   return rtf.format(value, unit)
 }
 
 function formatBch(v: number | undefined) {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : 0
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 8 }).format(n)
+  return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 8 }).format(n)
 }
 
 </script>

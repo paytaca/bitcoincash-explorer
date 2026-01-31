@@ -28,7 +28,7 @@
         </div>
         <div>
           <div class="label">Time</div>
-          <div class="value">{{ new Date(block.time * 1000).toLocaleString(undefined, { timeZoneName: 'short' }) }}</div>
+          <div class="value">{{ new Date(block.time * 1000).toLocaleString(locale, { timeZone: 'UTC', timeZoneName: 'short' }) }}</div>
         </div>
         <div>
           <div class="label">Tx count</div>
@@ -49,6 +49,7 @@
 <script setup lang="ts">
 const route = useRoute()
 const hash = String(route.params.hash)
+const locale = usePageLocale()
 
 const { data: block, pending, error } = await useFetch<any>(`/api/bch/block/${hash}`)
 

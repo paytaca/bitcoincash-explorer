@@ -177,22 +177,18 @@ type StatusResponse = {
   }
 }
 
-const locale = (() => {
-  if (import.meta.client) return navigator.language || 'en-US'
-  const al = useRequestHeaders(['accept-language'])['accept-language']
-  return al?.split(',')?.[0] || 'en-US'
-})()
+const locale = usePageLocale()
 
 const { data, pending, error } = await useFetch<StatusResponse>('/api/status')
 
 function formatAbsoluteTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
-  return new Date(unixSeconds * 1000).toLocaleString(locale, { timeZoneName: 'short' })
+  return new Date(unixSeconds * 1000).toLocaleString(locale.value, { timeZone: 'UTC', timeZoneName: 'short' })
 }
 
 function formatMaybeNumber(v: number | undefined) {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(v)
+  return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 0 }).format(v)
 }
 
 function formatMs(v: number | undefined) {
