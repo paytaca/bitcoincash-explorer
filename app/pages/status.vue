@@ -107,10 +107,6 @@
           <table class="table">
             <tbody>
               <tr>
-                <td class="k">Endpoint</td>
-                <td class="v mono">{{ `${data?.fulcrum.host}:${data?.fulcrum.port}` }}</td>
-              </tr>
-              <tr>
                 <td class="k">Tip height</td>
                 <td class="v mono">{{ formatMaybeNumber(data?.fulcrum.height) }}</td>
               </tr>
