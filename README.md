@@ -15,10 +15,17 @@ asdf install
 node -v
 ```
 
-2) Create a `.env` file (Cursor filters `.env*` from editing tools; use `env.example` as reference):
+2) Create a `.env.local` file for local development:
 
 ```bash
-cp env.example .env
+cp .env.local.example .env.local
+```
+
+Or create `.env.mainnet` / `.env.chipnet` for deployment configurations:
+
+```bash
+cp .env.mainnet.example .env.mainnet
+cp .env.chipnet.example .env.chipnet
 ```
 
 3) Install dependencies.
@@ -49,7 +56,7 @@ Used for:
 - Transaction details
 - Best-effort mempool timestamps (e.g. “seen time”)
 
-Configure via `.env`:
+Configure via your environment file (`.env.local`, `.env.mainnet`, or `.env.chipnet`):
 
 - `BCH_RPC_URL` (example: `http://127.0.0.1:8332/`)
 - `BCH_RPC_USER`
@@ -59,7 +66,7 @@ Configure via `.env`:
 
 Used for **address pages** (history, BCH balance, and token balances). Bitcoin Cash node does not index address history, so Fulcrum is required for `/address/:address`.
 
-Configure via `.env`:
+Configure via your environment file:
 
 - `FULCRUM_HOST` (example: `127.0.0.1`)
 - `FULCRUM_PORT` (example: `60001`)
@@ -80,7 +87,7 @@ Fulcrum methods used (typical Fulcrum supports all of these):
 
 Used to enrich CashTokens balances/details with metadata (name/symbol/decimals).
 
-Configure via `.env`:
+Configure via your environment file:
 
 - `BCMR_BASE_URL` (default: `https://bcmr.paytaca.com`)
 
@@ -108,9 +115,40 @@ docker run --rm -p 8000:8000 \
 
 Open `http://localhost:8000`.
 
-## Docker Compose (production)
+## Environment Files
 
-`docker-compose.prod.yml` uses `network_mode: "host"` so the container can reach host-local services bound to `127.0.0.1` (e.g. `bitcoind` RPC and Fulcrum on the same machine). In this mode, `FULCRUM_HOST=127.0.0.1` and `BCH_RPC_URL=http://127.0.0.1:8332/` work as expected.
+This project uses explicit environment files for different environments:
+
+- **`.env.local`** - Local development (no deployment config needed)
+- **`.env.mainnet`** - Mainnet deployment (includes server config for Fabric)
+- **`.env.chipnet`** - Chipnet deployment (includes server config for Fabric)
+
+Example templates are provided:
+- `.env.local.example`
+- `.env.mainnet.example`  
+- `.env.chipnet.example`
+
+## Deployment with Fabric
+
+Deploy to remote servers using Fabric:
+
+```bash
+# Deploy to mainnet
+fab mainnet deploy
+
+# Deploy to chipnet
+fab chipnet deploy
+
+# Check status
+fab mainnet status
+fab mainnet logs
+```
+
+Requires `SERVER_HOSTNAME` and `SERVER_USER` in your `.env.mainnet` or `.env.chipnet` file.
+
+## Docker Compose
+
+`docker-compose.yml` uses `network_mode: "host"` so the container can reach host-local services bound to `127.0.0.1` (e.g. `bitcoind` RPC and Fulcrum on the same machine). In this mode, `FULCRUM_HOST=127.0.0.1` and `BCH_RPC_URL=http://127.0.0.1:8332/` work as expected.
 
 ## Implemented routes
 
