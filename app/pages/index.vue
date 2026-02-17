@@ -150,69 +150,16 @@ const {
 const { data: tip, pending: tipPending, error: tipError } = await useFetch<number>('/api/bch/blockcount')
 
 const { data: blocks, pending: blocksPending, error: blocksError, refresh: refreshBlocks } = await useAsyncData('latestBlocks', async () => {
-  if (!tip.value) return []
-  const heights = Array.from({ length: 15 }, (_, i) => tip.value! - i)
-  
-  // Fetch sequentially to avoid overwhelming the server
-  const results = []
-  for (const height of heights) {
-    try {
-      const hash = await $fetch<string>(`/api/bch/blockhash/${height}`)
-      const block = await $fetch<any>(`/api/bch/block/${hash}`)
-      results.push({
-        hash: block.hash as string,
-        height: block.height as number,
-        time: typeof block.time === 'number' ? block.time : undefined,
-        miner: extractMinerFromBlock(block),
-        txCount: Array.isArray(block.tx) ? block.tx.length : 0
-      })
-    } catch (e) {
-      console.error(`Failed to fetch block at height ${height}:`, e)
-      // Continue with other blocks even if one fails
-    }
-  }
-  return results
+  return await $fetch<Array<{
+    hash: string
+    height: number
+    time?: number
+    txCount: number
+    miner?: string
+  }>>('/api/bch/blocks/latest')
 }, {
   watch: [tip],
-  server: false // Only fetch on client to avoid hydration issues
 })
-
-function extractMinerFromCoinbaseHex(coinbaseHex?: string): string | undefined {
-  if (!coinbaseHex || typeof coinbaseHex !== 'string') return undefined
-  if (!/^[0-9a-fA-F]+$/.test(coinbaseHex) || coinbaseHex.length % 2 !== 0) return undefined
-
-  // Decode to bytes, then keep printable ASCII. Many pools use slash-delimited tags like "/ViaBTC/".
-  let ascii = ''
-  try {
-    if (import.meta.client) {
-      const bytes = new Uint8Array(coinbaseHex.match(/.{1,2}/g)!.map((h) => parseInt(h, 16)))
-      ascii = Array.from(bytes, (b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : ' ')).join('')
-    } else {
-      // Node SSR path
-      // eslint-disable-next-line n/no-deprecated-api
-      const buf = Buffer.from(coinbaseHex, 'hex')
-      ascii = buf.toString('latin1').replace(/[^\x20-\x7E]+/g, ' ')
-    }
-  } catch {
-    return undefined
-  }
-
-  const cleaned = ascii.replace(/\s+/g, ' ').trim()
-  if (!cleaned) return undefined
-
-  // Best-effort: take first slash-delimited tag as "pool" name.
-  const m = cleaned.match(/\/\s*([A-Za-z0-9][A-Za-z0-9 ._-]{0,40}?)\s*\//)
-  if (m?.[1]) return m[1].trim()
-  return undefined
-}
-
-function extractMinerFromBlock(b: any): string | undefined {
-  const tx0 = Array.isArray(b?.tx) ? b.tx[0] : undefined
-  const vin0 = Array.isArray(tx0?.vin) ? tx0.vin[0] : undefined
-  // BCHN typically exposes coinbase script as vin[0].coinbase (hex).
-  const coinbaseHex = typeof vin0?.coinbase === 'string' ? vin0.coinbase : undefined
-  return extractMinerFromCoinbaseHex(coinbaseHex)
-}
 
 function formatAbsoluteTime(unixSeconds?: number) {
   if (!unixSeconds) return '—'
