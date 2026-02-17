@@ -55,10 +55,12 @@
     <section class="card">
       <div class="cardHeader">
         <h2 class="h2">Latest blocks</h2>
+        <button v-if="blocksError" class="refreshBtn" @click="refreshBlocks()">Retry</button>
       </div>
 
-      <div v-if="tipPending">Loading…</div>
+      <div v-if="tipPending || blocksPending">Loading…</div>
       <div v-else-if="tipError" class="error">Error: {{ tipError.message }}</div>
+      <div v-else-if="blocksError" class="error">Error loading blocks: {{ blocksError.message }}</div>
 
       <div v-else class="blockListWrap">
         <ul class="list">
@@ -147,20 +149,32 @@ const {
 
 const { data: tip, pending: tipPending, error: tipError } = await useFetch<number>('/api/bch/blockcount')
 
-const { data: blocks } = await useAsyncData('latestBlocks', async () => {
+const { data: blocks, pending: blocksPending, error: blocksError, refresh: refreshBlocks } = await useAsyncData('latestBlocks', async () => {
   if (!tip.value) return []
   const heights = Array.from({ length: 15 }, (_, i) => tip.value! - i)
-  const hashes = await Promise.all(heights.map((h) => $fetch<string>(`/api/bch/blockhash/${h}`)))
-  const full = await Promise.all(hashes.map((hash) => $fetch<any>(`/api/bch/block/${hash}`)))
-  return full.map((b) => ({
-    hash: b.hash as string,
-    height: b.height as number,
-    time: typeof b.time === 'number' ? b.time : undefined,
-    miner: extractMinerFromBlock(b),
-    txCount: Array.isArray(b.tx) ? b.tx.length : 0
-  }))
+  
+  // Fetch sequentially to avoid overwhelming the server
+  const results = []
+  for (const height of heights) {
+    try {
+      const hash = await $fetch<string>(`/api/bch/blockhash/${height}`)
+      const block = await $fetch<any>(`/api/bch/block/${hash}`)
+      results.push({
+        hash: block.hash as string,
+        height: block.height as number,
+        time: typeof block.time === 'number' ? block.time : undefined,
+        miner: extractMinerFromBlock(block),
+        txCount: Array.isArray(block.tx) ? block.tx.length : 0
+      })
+    } catch (e) {
+      console.error(`Failed to fetch block at height ${height}:`, e)
+      // Continue with other blocks even if one fails
+    }
+  }
+  return results
 }, {
-  watch: [tip]
+  watch: [tip],
+  server: false // Only fetch on client to avoid hydration issues
 })
 
 function extractMinerFromCoinbaseHex(coinbaseHex?: string): string | undefined {
@@ -474,6 +488,18 @@ function formatBch(v: number | undefined) {
 }
 .error {
   color: var(--color-error);
+}
+.refreshBtn {
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-card);
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.refreshBtn:hover {
+  background: var(--color-surface);
 }
 </style>
 
