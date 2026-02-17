@@ -159,6 +159,8 @@ const { data: blocks } = await useAsyncData('latestBlocks', async () => {
     miner: extractMinerFromBlock(b),
     txCount: Array.isArray(b.tx) ? b.tx.length : 0
   }))
+}, {
+  watch: [tip]
 })
 
 function extractMinerFromCoinbaseHex(coinbaseHex?: string): string | undefined {
