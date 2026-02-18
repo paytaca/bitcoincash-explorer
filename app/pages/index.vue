@@ -1,7 +1,10 @@
 <template>
   <main class="container">
     <h1 class="title">Bitcoin Cash Explorer</h1>
-    <p class="muted">Chain: {{ chain }}</p>
+    <div class="chainRow">
+      <span class="muted">Chain:</span>
+      <ChainSwitcher />
+    </div>
     <section class="card">
       <div class="cardHeader">
         <h2 class="h2">Latest transactions</h2>
@@ -110,8 +113,6 @@ type RecentTxResponse = {
   items: RecentTxItem[]
 }
 
-const chain = useRuntimeConfig().public.chain
-
 const fallbackTimestamp = computed(() =>
   new Date().toLocaleString('en-US', {
     timeZone: 'UTC',
@@ -213,6 +214,11 @@ function formatBch(v: number | undefined) {
   margin: 0 0 6px;
   font-size: 24px;
   letter-spacing: -0.02em;
+}
+.chainRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;

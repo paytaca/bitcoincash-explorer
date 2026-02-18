@@ -83,7 +83,11 @@ export default defineNuxtConfig({
 
     public: {
       // - NUXT_PUBLIC_CHAIN
-      chain: 'mainnet'
+      chain: 'mainnet',
+      // - NUXT_PUBLIC_MAINNET_URL
+      mainnetUrl: '',
+      // - NUXT_PUBLIC_CHIPNET_URL
+      chipnetUrl: ''
     }
   },
 

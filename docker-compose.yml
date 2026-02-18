@@ -26,6 +26,8 @@ services:
       NUXT_FULCRUM_PORT: ${FULCRUM_PORT:-60001}
       NUXT_FULCRUM_TIMEOUT_MS: ${FULCRUM_TIMEOUT_MS:-10000}
       NUXT_PUBLIC_CHAIN: ${CHAIN:-mainnet}
+      NUXT_PUBLIC_MAINNET_URL: ${MAINNET_URL}
+      NUXT_PUBLIC_CHIPNET_URL: ${CHIPNET_URL}
     # Keep secrets/config on the server, not in git.
     env_file:
       - .env
