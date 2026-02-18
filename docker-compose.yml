@@ -5,6 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        SITE_URL: ${SITE_URL:-https://bchexplorer.info}
+        NUXT_PUBLIC_SITE_URL: ${SITE_URL:-https://bchexplorer.info}
     # Host networking lets the container reach host-local services bound to 127.0.0.1
     # (e.g. BCHN RPC at http://127.0.0.1:8332/) without changing BCHN config.
     network_mode: "host"
