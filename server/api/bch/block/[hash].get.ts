@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    return await bchRpc<any>('getblock', [hash, 2])
+    return await bchRpc<any>('getblock', [hash, 1], 60_000)
   } catch (e) {
     if (isBlockNotFoundError(e)) {
       throw createError({ statusCode: 404, statusMessage: 'Block not found' })
