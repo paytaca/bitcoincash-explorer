@@ -4,7 +4,18 @@
 
     <div class="pageHead">
       <div class="pageHeadLeft">
-        <h1 class="title">Address</h1>
+        <h1 class="title">Address <button class="qrBtn" type="button" aria-label="Show QR code" @click="showQr = true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="3" height="3" />
+              <rect x="18" y="14" width="3" height="3" />
+              <rect x="14" y="18" width="3" height="3" />
+              <rect x="18" y="18" width="3" height="3" />
+            </svg>
+          </button>
+        </h1>
         <p class="mono">{{ displayAddress }}</p>
       </div>
 
@@ -19,6 +30,23 @@
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="showQr" class="qrModal" @click.self="showQr = false">
+        <div class="qrModalContent">
+          <button class="qrModalClose" type="button" aria-label="Close" @click="showQr = false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          <div class="qrModalBody">
+            <canvas ref="qrCanvas"></canvas>
+            <p class="qrAddress mono">{{ displayAddress }}</p>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <section class="card">
       <div class="cardHeader">
@@ -160,6 +188,7 @@
 <script setup lang="ts">
 import type { AddressDisplayMode } from '~/utils/addressFormat'
 import { convertCashAddrDisplay } from '~/utils/addressFormat'
+import QRCode from 'qrcode'
 
 type AddressTxItem = {
   txid: string
@@ -190,11 +219,34 @@ const address = String(route.params.address || '')
 const addressMode = useAddressDisplayMode()
 const stableNow = useStableNow()
 
+const showQr = ref(false)
+const qrCanvas = ref<HTMLCanvasElement | null>(null)
+
 function setAddressMode(mode: AddressDisplayMode) {
   addressMode.value = mode
 }
 
 const displayAddress = computed(() => convertCashAddrDisplay(address, addressMode.value))
+
+async function renderQrCode() {
+  if (!qrCanvas.value || !displayAddress.value) return
+  const isDark = document.documentElement.classList.contains('dark')
+  await QRCode.toCanvas(qrCanvas.value, displayAddress.value, {
+    width: 200,
+    margin: 2,
+    color: {
+      dark: isDark ? '#ffffff' : '#000000',
+      light: isDark ? '#1a1a1a' : '#ffffff',
+    },
+  })
+}
+
+watch([showQr, displayAddress], async ([isShowing]) => {
+  if (isShowing) {
+    await nextTick()
+    await renderQrCode()
+  }
+})
 
 const locale = usePageLocale()
 
@@ -367,6 +419,85 @@ function formatSignedBch(net: number) {
   margin: 12px 0 6px;
   font-size: 24px;
   letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qrBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-input);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.qrBtn:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.qrBtn svg {
+  width: 16px;
+  height: 16px;
+}
+.qrModal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+.qrModalContent {
+  position: relative;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+.qrModalClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-input);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.qrModalClose:hover {
+  background: var(--color-surface);
+}
+.qrModalClose svg {
+  width: 16px;
+  height: 16px;
+}
+.qrModalBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.qrAddress {
+  font-size: 11px;
+  word-break: break-all;
+  text-align: center;
+  max-width: 220px;
+  color: var(--color-text-secondary);
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;

@@ -12,7 +12,11 @@
   "dependencies": {
     "@bitauth/libauth": "^3.0.0",
     "nuxt": "^4.3.0",
+    "qrcode": "^1.5.4",
     "vue": "^3.5.27",
     "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6"
   }
 }
