@@ -258,7 +258,8 @@ export default defineEventHandler(async (event) => {
   const q = getQuery(event)
   const limit = Math.min(100, Math.max(1, Number(q.limit ?? 25) || 25))
   const cursor = Number(q.cursor ?? -1)
-  const window = Math.min(50_000, Math.max(100, Number(q.window ?? 5000) || 5000))
+  // Reduced default window from 5000 to 1000 to lower memory usage per request
+  const window = Math.min(50_000, Math.max(100, Number(q.window ?? 1000) || 1000))
   if (!Number.isFinite(cursor) || cursor < -1) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid cursor' })
   }
@@ -441,8 +442,11 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    const headerTimeCache = new Map<number, number | undefined>()
-    const txCache = new Map<string, DecodedTx>()
+    // Use request-scoped caches instead of global Maps to prevent memory accumulation
+    const headerTimeCache = (event.context._headerTimeCache as Map<number, number | undefined>) || new Map<number, number | undefined>()
+    const txCache = (event.context._txCache as Map<string, DecodedTx>) || new Map<string, DecodedTx>()
+    event.context._headerTimeCache = headerTimeCache
+    event.context._txCache = txCache
 
     async function getDecodedTx(txid: string): Promise<DecodedTx> {
       const existing = txCache.get(txid)
@@ -453,10 +457,20 @@ export default defineEventHandler(async (event) => {
       return decoded
     }
 
-    async function inputsFromScript(decoded: DecodedTx): Promise<{ sum: bigint; sawToken: boolean }> {
+    // Limit inputs processed to prevent memory issues with large transactions
+    const MAX_INPUTS_TO_PROCESS = 100
+
+    async function inputsFromScript(decoded: DecodedTx): Promise<{ sum: bigint; sawToken: boolean; truncated: boolean }> {
       let sum = BigInt(0)
       let sawToken = false
+      let processed = 0
+      const truncated = decoded.vin.length > MAX_INPUTS_TO_PROCESS
+
       for (const i of decoded.vin) {
+        // Limit processing to prevent memory exhaustion on large transactions
+        if (processed >= MAX_INPUTS_TO_PROCESS) break
+        processed++
+
         // Coinbase input
         if (i.prevTxid === '0'.repeat(64) && i.prevVout === 0xffffffff) continue
         const prev = await getDecodedTx(i.prevTxid)
@@ -467,14 +481,14 @@ export default defineEventHandler(async (event) => {
           sum += prevOut.valueSats
         }
       }
-      return { sum, sawToken }
+      return { sum, sawToken, truncated }
     }
 
     const results: AddressTxItem[] = []
     for (const p of picked) {
       const decodedTx = await getDecodedTx(p.txid)
       const outSats = sumOutputsToScript(decodedTx, targetScript)
-      const { sum: inSats, sawToken } = await inputsFromScript(decodedTx)
+      const { sum: inSats, sawToken, truncated: _truncated } = await inputsFromScript(decodedTx)
       const netSats = outSats - inSats
 
       const direction: AddressTxDirection = netSats < BigInt(0) ? 'sent' : 'received'

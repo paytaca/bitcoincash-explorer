@@ -96,12 +96,18 @@ export default defineNuxtConfig({
       cachedData: { driver: 'fs', base: './.cache/nitro' }
     },
     routeRules: {
-      // Blocks are immutable - cache indefinitely
-      '/api/bch/block/**': { cache: { swr: true, maxAge: 60 * 60 * 24 * 365 } },
-      // Block hash by height is a permanent mapping
-      '/api/bch/blockhash/**': { cache: { swr: true, maxAge: 60 * 60 * 24 * 365 } },
+      // Blocks are immutable - cache for 1 week (reduced from 1 year to save memory)
+      '/api/bch/block/**': { cache: { swr: true, maxAge: 60 * 60 * 24 * 7 } },
+      // Block hash by height is a permanent mapping - cache for 1 week
+      '/api/bch/blockhash/**': { cache: { swr: true, maxAge: 60 * 60 * 24 * 7 } },
       // BCMR metadata rarely changes; cache for fast repeated lookups.
       '/api/bcmr/token/**': { cache: { swr: true, maxAge: 60 * 60 } }
-    }
+    },
+    // Worker configuration to limit concurrent memory usage
+    worker: true,
+    minWorkers: 1,
+    maxWorkers: 2,
+    // Memory optimization: close connections more aggressively
+    timing: false
   }
 })
