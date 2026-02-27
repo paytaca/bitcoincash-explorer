@@ -20,21 +20,13 @@
               <th>Txid</th>
               <th>Amount</th>
               <th>Time</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="t in (recentTxs?.items || [])" :key="t.txid">
               <td class="txIdCell">
                 <NuxtLink class="txLink mono" :to="`/tx/${t.txid}`">{{ truncateTxid(t.txid) }}</NuxtLink>
-                <div class="txStatus">
-                  <span class="badge" :class="t.status === 'mempool' ? 'isMempool' : 'isConfirmed'">
-                    <template v-if="t.status === 'mempool'">Mempool</template>
-                    <template v-else>Confirmed</template>
-                  </span>
-                  <span v-if="t.status === 'confirmed' && t.confirmations" class="muted small">
-                    {{ t.confirmations }} conf
-                  </span>
-                </div>
               </td>
               <td class="amountCell">
                 <template v-if="t.amount !== undefined">
@@ -47,6 +39,17 @@
                 <div class="timeCellInner">
                   <span class="timeRel">{{ formatRelativeTime(t.time) }}</span>
                   <span class="timeAbs">{{ formatAbsoluteTime(t.time) }}</span>
+                </div>
+              </td>
+              <td class="statusCell">
+                <div class="txStatus">
+                  <span class="badge" :class="t.status === 'mempool' ? 'isMempool' : 'isConfirmed'">
+                    <template v-if="t.status === 'mempool'">Mempool</template>
+                    <template v-else>Confirmed</template>
+                  </span>
+                  <span v-if="t.status === 'confirmed' && t.confirmations" class="muted small">
+                    {{ t.confirmations }} conf
+                  </span>
                 </div>
               </td>
             </tr>
@@ -68,7 +71,7 @@
       <div v-else class="blockListWrap">
         <ul class="list">
           <li class="row headerRow" aria-hidden="true">
-          <div class="link headerLink">
+          <div class="headerLink">
             <span>Height</span>
             <span>Hash</span>
             <span>Miner</span>
@@ -389,8 +392,8 @@ function formatBlockSize(bytes: number): string {
 }
 .headerLink {
   display: grid;
-  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 140px) auto;
-  gap: 12px;
+  grid-template-columns: 160px 1fr 140px 200px;
+  gap: 16px;
   padding: 0 0 6px;
   font-size: 13px;
   font-weight: 600;
@@ -404,20 +407,14 @@ function formatBlockSize(bytes: number): string {
 }
 .link {
   display: grid;
-  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 140px) auto;
-  gap: 12px;
+  grid-template-columns: 160px 1fr 140px 200px;
+  gap: 16px;
   width: 100%;
   font-size: 13px;
   text-decoration: none;
   color: inherit;
   align-items: baseline;
   box-sizing: border-box;
-}
-.link > * {
-  min-width: 0;
-}
-.link > .time {
-  min-width: min-content;
 }
 .miner {
   font-size: 13px;
@@ -430,8 +427,7 @@ function formatBlockSize(bytes: number): string {
 .time {
   display: grid;
   gap: 2px;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  white-space: nowrap;
 }
 .time .timeRel {
   font-weight: 600;
@@ -449,7 +445,9 @@ function formatBlockSize(bytes: number): string {
   font-size: 12px;
 }
 .hash {
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 @media (max-width: 768px) {
   .blockListWrap .headerLink span:nth-child(2) {
@@ -460,12 +458,7 @@ function formatBlockSize(bytes: number): string {
   }
   .blockListWrap .headerLink,
   .blockListWrap .link {
-    grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 140px);
-  }
-  .blockListWrap .link > .time {
-    min-width: 0;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    grid-template-columns: 160px 1fr 200px;
   }
 }
 .error {
