@@ -713,6 +713,8 @@ function spentStatusClass(o: TxOutput) {
 }
 .pre {
   white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
   color: var(--color-text);
 }
 .error {
