@@ -31,6 +31,10 @@
           <div class="value">{{ new Date(block.time * 1000).toLocaleString(locale, { timeZone: 'UTC', timeZoneName: 'short' }) }}</div>
         </div>
         <div>
+          <div class="label">Size</div>
+          <div class="value">{{ formatBlockSize(block.size) }}</div>
+        </div>
+        <div>
           <div class="label">Tx count</div>
           <div class="value">{{ Array.isArray(block.tx) ? block.tx.length : 0 }}</div>
         </div>
@@ -59,6 +63,15 @@ const txids = computed(() => {
   // verbosity=2 returns tx objects; fall back if strings.
   return tx.map((t: any) => (typeof t === 'string' ? t : t?.txid)).filter(Boolean)
 })
+
+function formatBlockSize(bytes: number): string {
+  const mb = bytes / 1024 / 1024
+  if (mb >= 0.01) {
+    return mb.toFixed(2) + ' MB'
+  }
+  const kb = bytes / 1024
+  return kb.toFixed(2) + ' KB'
+}
 </script>
 
 <style scoped>
@@ -93,7 +106,7 @@ const txids = computed(() => {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -180,6 +193,11 @@ const txids = computed(() => {
 .notFoundBack:hover {
   background: var(--color-surface-hover, var(--color-surface));
   border-color: var(--color-border);
+}
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>
 

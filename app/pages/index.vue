@@ -25,7 +25,7 @@
           <tbody>
             <tr v-for="t in (recentTxs?.items || [])" :key="t.txid">
               <td class="txIdCell">
-                <NuxtLink class="txLink mono" :to="`/tx/${t.txid}`">{{ t.txid }}</NuxtLink>
+                <NuxtLink class="txLink mono" :to="`/tx/${t.txid}`">{{ truncateTxid(t.txid) }}</NuxtLink>
                 <div class="txStatus">
                   <span class="badge" :class="t.status === 'mempool' ? 'isMempool' : 'isConfirmed'">
                     <template v-if="t.status === 'mempool'">Mempool</template>
@@ -79,9 +79,9 @@
           <NuxtLink class="link" :to="`/block/${b.hash}`">
             <span class="blockHeightCell">
               <span class="mono">#{{ b.height }}</span>
-              <span class="muted blockTxCount">{{ b.txCount }} {{ b.txCount === 1 ? 'tx' : 'txs' }}</span>
+              <span class="muted blockTxCount">{{ formatBlockSize(b.size) }}, {{ b.txCount }} {{ b.txCount === 1 ? 'tx' : 'txs' }}</span>
             </span>
-            <span class="mono hash">{{ b.hash }}</span>
+            <span class="mono hash">{{ truncateHash(b.hash) }}</span>
             <span class="miner">{{ b.miner || 'Unknown' }}</span>
             <span class="time">
               <span class="timeRel">{{ formatRelativeTime(b.time) }}</span>
@@ -200,6 +200,31 @@ function formatRelativeTime(unixSeconds?: number) {
 function formatBch(v: number | undefined) {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : 0
   return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 8 }).format(n)
+}
+
+function truncateHash(hash: string, nonZeroChars = 10, endChars = 10): string {
+  const match = hash.match(/^(0+)(.*)/)
+  const leadingZeros = match ? match[1].length : 0
+  const firstNonZeroIndex = leadingZeros
+  const totalLength = leadingZeros + nonZeroChars + 3 + endChars
+
+  if (hash.length <= totalLength) return hash
+
+  return hash.slice(0, leadingZeros + nonZeroChars) + '...' + hash.slice(-endChars)
+}
+
+function truncateTxid(txid: string, startChars = 10, endChars = 10): string {
+  if (txid.length <= startChars + 3 + endChars) return txid
+  return txid.slice(0, startChars) + '...' + txid.slice(-endChars)
+}
+
+function formatBlockSize(bytes: number): string {
+  const mb = bytes / 1024 / 1024
+  if (mb >= 0.01) {
+    return mb.toFixed(2) + ' MB'
+  }
+  const kb = bytes / 1024
+  return kb.toFixed(2) + ' KB'
 }
 
 </script>
@@ -363,6 +388,9 @@ function formatBch(v: number | undefined) {
   padding: 0 10px;
 }
 .headerLink {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 140px) auto;
+  gap: 12px;
   padding: 0 0 6px;
   font-size: 13px;
   font-weight: 600;
@@ -376,7 +404,7 @@ function formatBch(v: number | undefined) {
 }
 .link {
   display: grid;
-  grid-template-columns: minmax(0, 90px) minmax(0, 1fr) minmax(0, 120px) auto;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 140px) auto;
   gap: 12px;
   width: 100%;
   font-size: 13px;
@@ -430,8 +458,9 @@ function formatBch(v: number | undefined) {
   .blockListWrap .link > .hash {
     display: none;
   }
+  .blockListWrap .headerLink,
   .blockListWrap .link {
-    grid-template-columns: minmax(0, 90px) minmax(0, 1fr) minmax(0, 120px);
+    grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 140px);
   }
   .blockListWrap .link > .time {
     min-width: 0;

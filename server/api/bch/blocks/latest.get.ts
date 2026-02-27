@@ -23,6 +23,7 @@ export default defineEventHandler(async (event) => {
           hash: block.hash,
           height: block.height,
           time: block.time,
+          size: block.size,
           txCount: Array.isArray(block.tx) ? block.tx.length : 0,
           miner: extractMinerFromBlock(block),
         });
