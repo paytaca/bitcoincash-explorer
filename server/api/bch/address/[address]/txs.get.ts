@@ -277,7 +277,7 @@ export default defineEventHandler(async (event) => {
     // `blockchain.scripthash.*` methods; using scripthash avoids any address parsing ambiguity.
     let bal: any
     try {
-      bal = await fulcrum.request<any>('blockchain.scripthash.get_balance', [scripthash])
+      bal = await fulcrum.request<any>('blockchain.scripthash.get_balance', [scripthash, 'include_tokens'])
     } catch {
       // fallback to address-based method (older/compat)
       bal = await fulcrum.request<any>('blockchain.address.get_balance', [address, 'include_tokens'])
