@@ -1,7 +1,8 @@
 import { bchRpc } from "../../../utils/bchRpc";
+import { withFileCache } from "../../../utils/cache";
 
 export default defineEventHandler(async (event) => {
-  try {
+  return await withFileCache("blocks:latest", 5 * 60_000, async () => {
     // Get the current tip
     const blockCount = await bchRpc("getblockcount");
     const tip = Number(blockCount);
@@ -34,13 +35,7 @@ export default defineEventHandler(async (event) => {
     }
 
     return blocks;
-  } catch (error) {
-    console.error("Error fetching latest blocks:", error);
-    throw createError({
-      statusCode: 500,
-      statusMessage: "Failed to fetch latest blocks",
-    });
-  }
+  });
 });
 
 function extractMinerFromBlock(b: any): string | undefined {

@@ -1,5 +1,6 @@
 import { bchRpc } from '../../../utils/bchRpc'
 import { getTokenMeta } from '../../../utils/bcmr'
+import { withConditionalFileCache } from '../../../utils/cache'
 
 function isTxNotFoundError(e: unknown): boolean {
   const msg = typeof (e as any)?.message === 'string' ? (e as any).message : String(e)
@@ -27,49 +28,57 @@ function collectTokenCategories(tx: any): string[] {
   return Array.from(cats)
 }
 
+function isConfirmedTx(tx: any): boolean {
+  return typeof tx?.blockhash === 'string' && tx.blockhash.length > 0
+}
+
 export default defineEventHandler(async (event) => {
   const txid = getRouterParam(event, 'txid')
   if (!txid) {
     throw createError({ statusCode: 400, statusMessage: 'Missing txid' })
   }
 
-  let tx: any
-  try {
-    tx = await bchRpc<any>('getrawtransaction', [txid, 2])
-  } catch (e) {
-    if (isTxNotFoundError(e)) {
-      throw createError({ statusCode: 404, statusMessage: 'Transaction not found' })
-    }
-    throw e
-  }
-
-  // Some nodes omit `time` for mempool transactions in getrawtransaction.
-  // Best-effort: if time is missing, attach mempool "seen time" (not block time).
-  if (typeof tx?.time !== 'number' || !Number.isFinite(tx.time)) {
-    try {
-      const entry = await bchRpc<any>('getmempoolentry', [txid])
-      if (typeof entry?.time === 'number' && Number.isFinite(entry.time)) {
-        tx.seenTime = entry.time
+  return await withConditionalFileCache(
+    `tx:${txid}`,
+    60 * 60 * 1000,
+    async () => {
+      let tx: any
+      try {
+        tx = await bchRpc<any>('getrawtransaction', [txid, 2])
+      } catch (e) {
+        if (isTxNotFoundError(e)) {
+          throw createError({ statusCode: 404, statusMessage: 'Transaction not found' })
+        }
+        throw e
       }
-    } catch {
-      // Not in mempool (or node doesn't support it); ignore.
-    }
-  }
 
-  const config = useRuntimeConfig()
-  const bcmrBaseUrl = String(config.bcmrBaseUrl || '').trim()
-  let tokenMeta: Record<string, { name?: string; symbol?: string; decimals?: number }> = {}
-  if (bcmrBaseUrl) {
-    const categories = collectTokenCategories(tx)
-    const entries = await Promise.all(
-      categories.map(async (cat) => {
-        const meta = await getTokenMeta(cat, bcmrBaseUrl)
-        return [cat, meta] as const
-      })
-    )
-    tokenMeta = Object.fromEntries(entries)
-  }
+      if (typeof tx?.time !== 'number' || !Number.isFinite(tx.time)) {
+        try {
+          const entry = await bchRpc<any>('getmempoolentry', [txid])
+          if (typeof entry?.time === 'number' && Number.isFinite(entry.time)) {
+            tx.seenTime = entry.time
+          }
+        } catch {
+        }
+      }
 
-  return { ...tx, tokenMeta }
+      const config = useRuntimeConfig()
+      const bcmrBaseUrl = String(config.bcmrBaseUrl || '').trim()
+      let tokenMeta: Record<string, { name?: string; symbol?: string; decimals?: number }> = {}
+      if (bcmrBaseUrl) {
+        const categories = collectTokenCategories(tx)
+        const entries = await Promise.all(
+          categories.map(async (cat) => {
+            const meta = await getTokenMeta(cat, bcmrBaseUrl)
+            return [cat, meta] as const
+          })
+        )
+        tokenMeta = Object.fromEntries(entries)
+      }
+
+      return { ...tx, tokenMeta }
+    },
+    (result) => isConfirmedTx(result)
+  )
 })
 

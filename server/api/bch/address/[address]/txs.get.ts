@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { createFulcrumClient } from '../../../../utils/fulcrumRpc'
 import { getTokenMeta } from '../../../../utils/bcmr'
 import { bchRpc } from '../../../../utils/bchRpc'
+import { withFileCache } from '../../../../utils/cache'
 
 type AddressTxStatus = 'mempool' | 'confirmed'
 type AddressTxDirection = 'sent' | 'received'
@@ -256,8 +257,8 @@ export default defineEventHandler(async (event) => {
 
   const q = getQuery(event)
   const limit = Math.min(100, Math.max(1, Number(q.limit ?? 25) || 25))
-  const cursor = Number(q.cursor ?? -1) // to_height (exclusive). -1 means "tip + mempool"
-  const window = Math.min(50_000, Math.max(100, Number(q.window ?? 5000) || 5000)) // height window to scan per request
+  const cursor = Number(q.cursor ?? -1)
+  const window = Math.min(50_000, Math.max(100, Number(q.window ?? 5000) || 5000))
   if (!Number.isFinite(cursor) || cursor < -1) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid cursor' })
   }
@@ -267,10 +268,14 @@ export default defineEventHandler(async (event) => {
   const targetScript = lockingScriptFromDecodedCashaddr(decodedAddr)
   const scripthash = toScripthashHex(targetScript)
 
-  const fulcrum = createFulcrumClient()
-  try {
-    const tip = await fulcrum.request<{ height: number }>('blockchain.headers.subscribe', [])
-    const tipHeight = Number(tip?.height ?? 0)
+  return await withFileCache(
+    `address:${address}:${cursor}:${limit}`,
+    30_000,
+    async () => {
+      const fulcrum = createFulcrumClient()
+      try {
+        const tip = await fulcrum.request<{ height: number }>('blockchain.headers.subscribe', [])
+        const tipHeight = Number(tip?.height ?? 0)
 
     // Prefer scripthash-based calls for consistency with history queries.
     // Some Fulcrum setups can behave differently between `blockchain.address.*` and
@@ -534,7 +539,9 @@ export default defineEventHandler(async (event) => {
       items: results
     }
   } finally {
-    fulcrum.close()
-  }
+      fulcrum.close()
+    }
+    }
+  )
 })
 
