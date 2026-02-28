@@ -127,8 +127,8 @@
       </ul>
 
       <h2 class="h2">Outputs</h2>
-      <ul class="list">
-        <li v-for="(o, idx) in outputs" :key="o.key" class="row">
+      <ul class="list outputs">
+        <li v-for="(o, idx) in outputs" :key="o.key" class="row" :class="{ highlight: highlightOutput === idx }">
           <div class="rowTop">
             <div class="mono muted">#{{ idx }}</div>
             <div class="amountRow">
@@ -275,6 +275,13 @@ import { convertCashAddrDisplay } from '~/utils/addressFormat'
 const route = useRoute()
 const txid = String(route.params.txid)
 
+const highlightOutput = computed<number | null>(() => {
+  const o = route.query.o ?? route.query.output
+  if (o == null) return null
+  const n = Number(o)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null
+})
+
 const locale = usePageLocale()
 
 const addressMode = useAddressDisplayMode()
@@ -290,6 +297,17 @@ type TokenData = {
 }
 
 const { data: tx, pending, error } = await useFetch<any>(`/api/bch/tx/${txid}`)
+
+onMounted(() => {
+  const outputIdx = highlightOutput.value
+  if (outputIdx == null) return
+  nextTick(() => {
+    const outputs = document.querySelectorAll('.outputs .row')
+    if (outputs[outputIdx]) {
+      outputs[outputIdx].scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
+})
 
 const rawTxData = ref<any>(null)
 const rawTxLoading = ref(false)
@@ -659,6 +677,11 @@ function spentStatusClass(o: TxOutput) {
   padding: 10px 10px;
   background: var(--color-surface);
   border: 1px solid var(--color-surface-border);
+}
+.row.highlight {
+  background: var(--color-highlight, rgba(255, 200, 0, 0.15));
+  border-color: var(--color-highlight-border, rgba(255, 200, 0, 0.4));
+  box-shadow: 0 0 0 2px var(--color-highlight-glow, rgba(255, 200, 0, 0.2));
 }
 .rowTop {
   display: flex;
