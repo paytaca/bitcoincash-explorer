@@ -16,6 +16,9 @@ services:
       NITRO_HOST: "0.0.0.0"
       NITRO_PORT: "8000"
 
+      # Increase Node.js heap size to prevent out-of-memory errors
+      NODE_OPTIONS: "--max-old-space-size=4096"
+
       # Map our existing .env keys into Nuxt runtime config env vars.
       # (Nuxt reads NUXT_* variables at runtime; it does NOT read BCH_RPC_URL directly in production.)
       NUXT_BCH_RPC_URL: ${BCH_RPC_URL}
