@@ -93,6 +93,18 @@ export async function getMempoolTxids(redis: Redis | null): Promise<Set<string> 
   }
 }
 
+export async function getFullTransaction(redis: Redis | null, txid: string): Promise<any | null> {
+  if (!redis) return null
+
+  try {
+    const data = await redis.get(`bch:tx:${txid}`)
+    return data ? JSON.parse(data) : null
+  } catch (error) {
+    console.error('Error fetching full transaction from Redis:', error)
+    return null
+  }
+}
+
 // Redis-based caching utilities (replaces file-based cache)
 
 const DEFAULT_CACHE_PREFIX = 'cache:'

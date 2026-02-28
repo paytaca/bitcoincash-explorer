@@ -1,6 +1,6 @@
 import { bchRpc } from '../../../utils/bchRpc'
 import { getTokenMeta } from '../../../utils/bcmr'
-import { getRedisClient, withConditionalCache } from '../../../utils/redis'
+import { getRedisClient, getFullTransaction, withConditionalCache } from '../../../utils/redis'
 
 function isTxNotFoundError(e: unknown): boolean {
   const msg = typeof (e as any)?.message === 'string' ? (e as any).message : String(e)
@@ -74,8 +74,37 @@ export default defineEventHandler(async (event) => {
 
   const redis = getRedisClient()
 
+  const cachedTx = await getFullTransaction(redis, txid)
+  if (cachedTx) {
+    const isConfirmed = isConfirmedTx(cachedTx)
+    
+    if (!isConfirmed) {
+      try {
+        const entry = await bchRpc<any>('getmempoolentry', [txid], 10000, { maxRetries: 1 })
+        if (typeof entry?.time === 'number' && Number.isFinite(entry.time)) {
+          cachedTx.seenTime = entry.time
+        }
+      } catch {
+        // Ignore mempool entry errors
+      }
+    }
+
+    const config = useRuntimeConfig()
+    const bcmrBaseUrl = String(config.bcmrBaseUrl || '').trim()
+    let tokenMeta: Record<string, { name?: string; symbol?: string; decimals?: number }> = {}
+
+    if (bcmrBaseUrl && !cachedTx.tokenMeta) {
+      const categories = collectTokenCategories(cachedTx)
+      const limitedCategories = categories.slice(0, 10)
+      tokenMeta = await fetchTokenMetaWithLimit(limitedCategories, bcmrBaseUrl, 3)
+      cachedTx.tokenMeta = tokenMeta
+    }
+
+    return cachedTx
+  }
+
   // Cache confirmed transactions for 1 hour (3600 seconds)
-  // Unconfirmed transactions are not cached
+  // Unconfirmed transactions are not cached (they're stored by ZMQ with 15 min TTL)
   return await withConditionalCache(
     redis,
     `tx:${txid}`,

@@ -114,6 +114,7 @@ export class ZmqClient {
         const isInMempool = await redis.isInMempool(txid)
         if (isInMempool) {
           await redis.markTransactionConfirmed(txid, block.height, 1)
+          await redis.removeFullTransaction(txid)
         } else {
           // Add confirmed transaction that wasn't in our mempool
           const vout = tx.vout || []
@@ -203,13 +204,18 @@ export class ZmqClient {
 
   private async handleRawTx(data: Buffer): Promise<void> {
     try {
-      // Parse the raw transaction to get txid and basic info
       const partialTx = this.parseRawTransaction(data)
 
-      // Fetch full transaction details from RPC to detect tokens
-      let tx: TransactionData
+      let fullTx: any
       try {
-        const fullTx = await rpc.getRawTransaction(partialTx.txid, true)
+        fullTx = await rpc.getRawTransaction(partialTx.txid, true)
+      } catch (rpcError) {
+        console.warn(`Failed to fetch tx details from RPC for ${partialTx.txid.slice(0, 16)}..., using parsed data`)
+        fullTx = null
+      }
+
+      let tx: TransactionData
+      if (fullTx) {
         const vout = fullTx.vout || []
         const amount = vout.reduce((sum: number, output: any) => {
           return sum + (typeof output.value === 'number' ? output.value : 0)
@@ -226,9 +232,9 @@ export class ZmqClient {
           hasTokens,
           size: partialTx.size
         }
-      } catch (rpcError) {
-        // Fallback to parsed data if RPC fails
-        console.warn(`Failed to fetch tx details from RPC for ${partialTx.txid.slice(0, 16)}..., using parsed data`)
+
+        await redis.storeFullTransaction(fullTx)
+      } else {
         tx = partialTx
       }
 

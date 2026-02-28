@@ -22,6 +22,24 @@ export interface TransactionData {
   confirmations?: number
 }
 
+export interface FullTransactionData {
+  txid: string
+  hash?: string
+  version?: number
+  size?: number
+  locktime?: number
+  vin?: any[]
+  vout?: any[]
+  blockhash?: string
+  blockheight?: number
+  confirmations?: number
+  time?: number
+  blocktime?: number
+  tokenMeta?: Record<string, any>
+}
+
+const TX_DETAIL_TTL = 900 // 15 minutes in seconds
+
 class RedisClient {
   private client: Redis
 
@@ -164,6 +182,22 @@ class RedisClient {
     if (filtered.length > 0) {
       await this.client.lpush(key, ...filtered.map(b => JSON.stringify(b)))
     }
+  }
+
+  async storeFullTransaction(tx: FullTransactionData): Promise<void> {
+    const key = getRedisKey(`tx:${tx.txid}`)
+    await this.client.setex(key, TX_DETAIL_TTL, JSON.stringify(tx))
+  }
+
+  async getFullTransaction(txid: string): Promise<FullTransactionData | null> {
+    const key = getRedisKey(`tx:${txid}`)
+    const data = await this.client.get(key)
+    return data ? JSON.parse(data) : null
+  }
+
+  async removeFullTransaction(txid: string): Promise<void> {
+    const key = getRedisKey(`tx:${txid}`)
+    await this.client.del(key)
   }
 
   async disconnect(): Promise<void> {

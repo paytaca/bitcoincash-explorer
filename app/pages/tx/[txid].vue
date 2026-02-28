@@ -256,9 +256,13 @@
         </li>
       </ul>
 
-      <details class="details">
-        <summary>Raw tx</summary>
-        <pre class="pre">{{ tx }}</pre>
+      <details class="details" ref="rawTxDetails" :open="detailsOpen">
+        <summary class="rawTxSummary" @click="toggleRawTx">
+          <span v-if="!rawTxLoaded">Raw tx (click to load)</span>
+          <span v-else>Raw tx</span>
+        </summary>
+        <pre v-if="rawTxLoaded" class="pre">{{ JSON.stringify(rawTxData, null, 2) }}</pre>
+        <div v-else-if="rawTxLoading" class="rawTxLoading">Loading...</div>
       </details>
     </section>
   </main>
@@ -286,6 +290,34 @@ type TokenData = {
 }
 
 const { data: tx, pending, error } = await useFetch<any>(`/api/bch/tx/${txid}`)
+
+const rawTxData = ref<any>(null)
+const rawTxLoading = ref(false)
+const rawTxLoaded = ref(false)
+const detailsOpen = ref(false)
+
+async function toggleRawTx(e: Event) {
+  e.preventDefault()
+  
+  if (rawTxLoaded.value) {
+    detailsOpen.value = !detailsOpen.value
+    return
+  }
+  
+  if (rawTxLoading.value) return
+  
+  detailsOpen.value = true
+  rawTxLoading.value = true
+  try {
+    rawTxData.value = tx.value
+    rawTxLoaded.value = true
+  } catch (e) {
+    console.error('Failed to load raw tx:', e)
+    detailsOpen.value = false
+  } finally {
+    rawTxLoading.value = false
+  }
+}
 
 const timeValue = computed<number | undefined>(() => {
   const t = tx.value
@@ -710,6 +742,17 @@ function spentStatusClass(o: TxOutput) {
 }
 .details {
   margin-top: 14px;
+}
+.rawTxSummary {
+  cursor: pointer;
+  color: var(--color-link);
+}
+.rawTxSummary:hover {
+  text-decoration: underline;
+}
+.rawTxLoading {
+  padding: 8px;
+  color: var(--color-text-secondary);
 }
 .pre {
   white-space: pre-wrap;

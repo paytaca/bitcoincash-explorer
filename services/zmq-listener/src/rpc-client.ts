@@ -65,7 +65,7 @@ export class RpcClient {
   }
 
   async getRawTransaction(txid: string, verbose: boolean = true): Promise<any> {
-    return this.call<any>('getrawtransaction', [txid, verbose ? 1 : 0])
+    return this.call<any>('getrawtransaction', [txid, verbose ? 2 : 0])
   }
 
   async getRawMempool(): Promise<Record<string, any>> {
