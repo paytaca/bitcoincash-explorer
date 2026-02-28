@@ -1,6 +1,39 @@
 version: "3.9"
 
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  zmq-listener:
+    build:
+      context: ./services/zmq-listener
+      dockerfile: Dockerfile
+    environment:
+      BCH_ZMQ_HOST: ${BCH_ZMQ_HOST:-127.0.0.1}
+      BCH_ZMQ_PORT: ${BCH_ZMQ_PORT:-28332}
+      REDIS_URL: redis://127.0.0.1:6379/0
+      REDIS_PREFIX: bch
+      # Fallback RPC (for initial sync)
+      BCH_RPC_URL: ${BCH_RPC_URL}
+      BCH_RPC_USER: ${BCH_RPC_USER}
+      BCH_RPC_PASS: ${BCH_RPC_PASS}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Host networking for ZMQ (BCHN is on host)
+    network_mode: "host"
+
   web:
     build:
       context: .
@@ -8,8 +41,6 @@ services:
       args:
         SITE_URL: ${SITE_URL:-https://bchexplorer.info}
         NUXT_PUBLIC_SITE_URL: ${SITE_URL:-https://bchexplorer.info}
-    # Host networking lets the container reach host-local services bound to 127.0.0.1
-    # (e.g. BCHN RPC at http://127.0.0.1:8332/) without changing BCHN config.
     network_mode: "host"
     environment:
       # Nuxt/Nitro server
@@ -20,7 +51,6 @@ services:
       NODE_OPTIONS: "--max-old-space-size=4096"
 
       # Map our existing .env keys into Nuxt runtime config env vars.
-      # (Nuxt reads NUXT_* variables at runtime; it does NOT read BCH_RPC_URL directly in production.)
       NUXT_BCH_RPC_URL: ${BCH_RPC_URL}
       NUXT_BCH_RPC_USER: ${BCH_RPC_USER}
       NUXT_BCH_RPC_PASS: ${BCH_RPC_PASS}
@@ -31,7 +61,15 @@ services:
       NUXT_PUBLIC_CHAIN: ${CHAIN:-mainnet}
       NUXT_PUBLIC_MAINNET_URL: ${MAINNET_URL}
       NUXT_PUBLIC_CHIPNET_URL: ${CHIPNET_URL}
-    # Keep secrets/config on the server, not in git.
+      
+      # Redis
+      REDIS_URL: redis://127.0.0.1:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     restart: unless-stopped
+
+volumes:
+  redis-data:

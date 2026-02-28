@@ -81,6 +81,10 @@ export default defineNuxtConfig({
     fulcrumPort: 60001,
     fulcrumTimeoutMs: 10_000,
 
+    // Redis cache (for ZMQ-based data)
+    // - NUXT_REDIS_URL or REDIS_URL
+    redisUrl: '',
+
     public: {
       // - NUXT_PUBLIC_CHAIN
       chain: 'mainnet',

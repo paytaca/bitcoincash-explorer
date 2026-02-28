@@ -1,8 +1,32 @@
 import { bchRpc } from "../../../utils/bchRpc";
 import { withFileCache } from "../../../utils/cache";
+import { getRedisClient, getLatestBlocks, BlockData } from "../../../utils/redis";
 
 export default defineEventHandler(async (event) => {
+  // Try Redis first (zero RPC calls)
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      const blocks = await getLatestBlocks(redis, 15);
+      if (blocks && blocks.length > 0) {
+        return blocks.map(b => ({
+          hash: b.hash,
+          height: b.height,
+          time: b.time,
+          size: b.size,
+          txCount: b.txCount,
+          miner: b.miner,
+        }));
+      }
+    } catch (error) {
+      console.warn('Redis fetch failed, falling back to RPC:', error);
+    }
+  }
+
+  // Fallback to RPC with file cache
   return await withFileCache("blocks:latest", 5 * 60_000, async () => {
+    console.log('Fetching blocks from RPC...');
+    
     // Get the current tip
     const blockCount = await bchRpc("getblockcount");
     const tip = Number(blockCount);

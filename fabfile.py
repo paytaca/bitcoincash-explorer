@@ -12,6 +12,7 @@ CONFIG = {
     "ENV_FILE": ".env",  # Default to .env
 }
 
+
 def _load_config(env_path: str) -> None:
     """
     Loads configuration from a specific .env file into CONFIG.
@@ -31,7 +32,7 @@ def _load_config(env_path: str) -> None:
             k, v = line.split("=", 1)
             k = k.strip()
             v = v.strip().strip("'").strip('"')
-            
+
             # Map environment variables to CONFIG keys
             if k == "SERVER_HOSTNAME":
                 CONFIG["HOST"] = v
@@ -44,6 +45,7 @@ def _load_config(env_path: str) -> None:
             elif k == "SERVER_DOCKER_COMPOSE_PROJECT":
                 CONFIG["COMPOSE_PROJECT"] = v
 
+
 def _require_server_config() -> None:
     missing = []
     if not CONFIG["HOST"]:
@@ -53,10 +55,12 @@ def _require_server_config() -> None:
     if missing:
         raise RuntimeError(f"Missing required configuration: {', '.join(missing)}")
 
+
 def get_connection() -> Connection:
     """Helper function to create connection"""
     _require_server_config()
     return Connection(host=CONFIG["HOST"], user=CONFIG["USER"])
+
 
 @task
 def mainnet(c):
@@ -64,11 +68,13 @@ def mainnet(c):
     _load_config(".env.mainnet")
     print(f"🌍 Selected environment: Mainnet ({CONFIG['HOST']})")
 
+
 @task
 def chipnet(c):
     """Configure deployment for Chipnet (uses .env.chipnet)"""
     _load_config(".env.chipnet")
     print(f"🧪 Selected environment: Chipnet ({CONFIG['HOST']})")
+
 
 @task
 def uname(c):
@@ -76,11 +82,12 @@ def uname(c):
     conn = get_connection()
     conn.run("uname -a")
 
+
 @task
 def sync(c):
     """Sync local files to remote server using rsync"""
     conn = c.config.run.env.get("conn") or get_connection()
-    
+
     # Sync everything excluding local env files (we handle it separately)
     rsync(
         conn,
@@ -90,10 +97,10 @@ def sync(c):
             ".git/",
             ".venv/",
             ".DS_Store",
-            ".env",             # Exclude local .env
-            ".env.local",       # Exclude local env
-            ".env.mainnet",     # Exclude mainnet env (uploaded separately)
-            ".env.chipnet",     # Exclude chipnet env
+            ".env",  # Exclude local .env
+            ".env.local",  # Exclude local env
+            ".env.mainnet",  # Exclude mainnet env (uploaded separately)
+            ".env.chipnet",  # Exclude chipnet env
             "__pycache__/",
             "node_modules/",
             "dist/",
@@ -106,7 +113,7 @@ def sync(c):
             ".idea/",
         ],
     )
-    
+
     # Upload the selected environment file as .env on the remote server
     source_env = CONFIG["ENV_FILE"]
     if os.path.exists(source_env):
@@ -115,33 +122,46 @@ def sync(c):
     else:
         print(f"⚠️ Warning: Environment file {source_env} not found locally!")
 
+
 @task
 def build(c):
     """Build Docker image (remote)"""
     conn = c.config.run.env.get("conn") or get_connection()
     with conn.cd(CONFIG["PATH"]):
-        conn.run(f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} build")
+        conn.run(
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} build"
+        )
+
 
 @task
 def up(c):
     """Start Docker containers (remote)"""
     conn = c.config.run.env.get("conn") or get_connection()
     with conn.cd(CONFIG["PATH"]):
-        conn.run(f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} up -d --build --force-recreate")
+        conn.run(
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} up -d --build --force-recreate"
+        )
+
 
 @task
 def down(c):
     """Stop Docker containers (remote)"""
     conn = c.config.run.env.get("conn") or get_connection()
     with conn.cd(CONFIG["PATH"]):
-        conn.run(f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} down")
+        conn.run(
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} down"
+        )
+
 
 @task
 def restart(c):
     """Restart Docker containers (remote)"""
     conn = c.config.run.env.get("conn") or get_connection()
     with conn.cd(CONFIG["PATH"]):
-        conn.run(f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} restart")
+        conn.run(
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} restart"
+        )
+
 
 @task
 def prune(c):
@@ -151,30 +171,65 @@ def prune(c):
     conn.run("sudo docker network prune -f")
     print("✅ Docker cleanup complete")
 
+
 @task
 def logs(c, follow=True):
     """View Docker logs (remote)"""
     conn = c.config.run.env.get("conn") or get_connection()
     with conn.cd(CONFIG["PATH"]):
         if follow:
-            conn.run(f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} logs -f --tail=100")
+            conn.run(
+                f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} logs -f --tail=100"
+            )
         else:
-            conn.run(f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} logs --tail=100")
+            conn.run(
+                f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} logs --tail=100"
+            )
+
 
 @task
 def status(c):
     """Check Docker container status (remote)"""
     conn = c.config.run.env.get("conn") or get_connection()
     with conn.cd(CONFIG["PATH"]):
-        conn.run(f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} ps")
+        conn.run(
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} ps"
+        )
+
+
+@task
+def clear_redis(c):
+    """Clear Redis lists (blocks and transactions)"""
+    conn = c.config.run.env.get("conn") or get_connection()
+    print("🧹 Clearing Redis lists...")
+    with conn.cd(CONFIG["PATH"]):
+        # Delete the Redis lists for blocks and transactions
+        conn.run(
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} exec -T redis redis-cli DEL bch:blocks:latest bch:txs:latest bch:mempool:txids || true"
+        )
+    print("✅ Redis lists cleared")
+
+
+@task
+def clear_cache(c):
+    """Clear server-side memory cache by restarting the app container"""
+    conn = c.config.run.env.get("conn") or get_connection()
+    print("🧹 Clearing server cache...")
+    with conn.cd(CONFIG["PATH"]):
+        # Touch a file to trigger Nuxt/Nitro cache clear on next start
+        conn.run(
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} exec -T app touch /app/.clear-cache || true"
+        )
+    print("✅ Server cache marked for clearing")
+
 
 @task
 def deploy(c):
     """Full deployment: sync, build, down, up"""
     # Default to mainnet if no environment selected
     if not CONFIG["HOST"] and os.path.exists(".env.mainnet"):
-         print("ℹ️  No environment selected. Defaulting to Mainnet (.env.mainnet).")
-         _load_config(".env.mainnet")
+        print("ℹ️  No environment selected. Defaulting to Mainnet (.env.mainnet).")
+        _load_config(".env.mainnet")
 
     print("🚀 Starting deployment...")
     sync(c)
@@ -182,5 +237,9 @@ def deploy(c):
     build(c)
     print("🛑 Stopping old containers...")
     down(c)
+    print("🧹 Clearing Redis lists...")
+    clear_redis(c)
+    print("🧹 Clearing server cache...")
+    clear_cache(c)
     print("🎬 Starting new containers...")
     up(c)
