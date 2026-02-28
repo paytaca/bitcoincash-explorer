@@ -1,6 +1,6 @@
 import { bchRpc } from '../../../utils/bchRpc'
 import { getTokenMeta } from '../../../utils/bcmr'
-import { withConditionalFileCache } from '../../../utils/cache'
+import { getRedisClient, withConditionalCache } from '../../../utils/redis'
 
 function isTxNotFoundError(e: unknown): boolean {
   const msg = typeof (e as any)?.message === 'string' ? (e as any).message : String(e)
@@ -39,10 +39,10 @@ async function fetchTokenMetaWithLimit(
   concurrency = 3
 ): Promise<Record<string, { name?: string; symbol?: string; decimals?: number }>> {
   if (categories.length === 0) return {}
-  
+
   const results: Record<string, { name?: string; symbol?: string; decimals?: number }> = {}
   const executing: Promise<void>[] = []
-  
+
   for (const cat of categories) {
     const promise = getTokenMeta(cat, bcmrBaseUrl)
       .then((meta) => {
@@ -53,15 +53,15 @@ async function fetchTokenMetaWithLimit(
       .catch(() => {
         // Ignore individual token fetch failures
       })
-    
+
     executing.push(promise)
-    
+
     if (executing.length >= concurrency) {
       await Promise.race(executing)
       executing.splice(executing.findIndex(p => p === promise || p === executing[0]), 1)
     }
   }
-  
+
   await Promise.all(executing)
   return results
 }
@@ -72,9 +72,14 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Missing txid' })
   }
 
-  return await withConditionalFileCache(
+  const redis = getRedisClient()
+
+  // Cache confirmed transactions for 1 hour (3600 seconds)
+  // Unconfirmed transactions are not cached
+  return await withConditionalCache(
+    redis,
     `tx:${txid}`,
-    60 * 60 * 1000,
+    3600,
     async () => {
       let tx: any
       try {
@@ -102,7 +107,7 @@ export default defineEventHandler(async (event) => {
       const config = useRuntimeConfig()
       const bcmrBaseUrl = String(config.bcmrBaseUrl || '').trim()
       let tokenMeta: Record<string, { name?: string; symbol?: string; decimals?: number }> = {}
-      
+
       if (bcmrBaseUrl) {
         const categories = collectTokenCategories(tx)
         // Limit to first 10 categories to prevent abuse

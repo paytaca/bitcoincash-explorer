@@ -297,8 +297,7 @@ function formatBlockSize(bytes: number): string {
   color: var(--color-text-secondary);
 }
 .txIdCell {
-  display: grid;
-  gap: 4px;
+  vertical-align: top;
 }
 .txStatus {
   display: flex;

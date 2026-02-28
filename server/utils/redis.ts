@@ -83,12 +83,96 @@ export async function getLatestTransactions(redis: Redis | null, limit: number =
 
 export async function getMempoolTxids(redis: Redis | null): Promise<Set<string> | null> {
   if (!redis) return null
-  
+
   try {
     const txids = await redis.smembers('bch:mempool:txids')
     return new Set(txids)
   } catch (error) {
     console.error('Error fetching mempool from Redis:', error)
     return null
+  }
+}
+
+// Redis-based caching utilities (replaces file-based cache)
+
+const DEFAULT_CACHE_PREFIX = 'cache:'
+
+export async function withCache<T>(
+  redis: Redis | null,
+  key: string,
+  ttlSeconds: number,
+  fn: () => Promise<T>
+): Promise<T> {
+  if (!redis) {
+    return fn()
+  }
+
+  const cacheKey = `${DEFAULT_CACHE_PREFIX}${key}`
+
+  try {
+    const cached = await redis.get(cacheKey)
+    if (cached) {
+      return JSON.parse(cached)
+    }
+  } catch (error) {
+    console.warn('Redis cache read failed:', error)
+  }
+
+  const value = await fn()
+
+  try {
+    await redis.setex(cacheKey, ttlSeconds, JSON.stringify(value))
+  } catch (error) {
+    console.warn('Redis cache write failed:', error)
+  }
+
+  return value
+}
+
+export async function withConditionalCache<T>(
+  redis: Redis | null,
+  key: string,
+  ttlSeconds: number,
+  fn: () => Promise<T>,
+  shouldCache: (result: T) => boolean
+): Promise<T> {
+  if (!redis) {
+    return fn()
+  }
+
+  const cacheKey = `${DEFAULT_CACHE_PREFIX}${key}`
+
+  try {
+    const cached = await redis.get(cacheKey)
+    if (cached) {
+      return JSON.parse(cached)
+    }
+  } catch (error) {
+    console.warn('Redis cache read failed:', error)
+  }
+
+  const value = await fn()
+
+  if (shouldCache(value)) {
+    try {
+      await redis.setex(cacheKey, ttlSeconds, JSON.stringify(value))
+    } catch (error) {
+      console.warn('Redis cache write failed:', error)
+    }
+  }
+
+  return value
+}
+
+export async function invalidateCache(redis: Redis | null, keyPattern: string): Promise<void> {
+  if (!redis) return
+
+  try {
+    const keys = await redis.keys(`${DEFAULT_CACHE_PREFIX}${keyPattern}`)
+    if (keys.length > 0) {
+      await redis.del(...keys)
+    }
+  } catch (error) {
+    console.warn('Redis cache invalidation failed:', error)
   }
 }

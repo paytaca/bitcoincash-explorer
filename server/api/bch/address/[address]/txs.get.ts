@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { createFulcrumClient } from '../../../../utils/fulcrumRpc'
 import { getTokenMeta } from '../../../../utils/bcmr'
 import { bchRpc } from '../../../../utils/bchRpc'
-import { withFileCache } from '../../../../utils/cache'
+import { getRedisClient, withCache } from '../../../../utils/redis'
 
 type AddressTxStatus = 'mempool' | 'confirmed'
 type AddressTxDirection = 'sent' | 'received'
@@ -269,9 +269,13 @@ export default defineEventHandler(async (event) => {
   const targetScript = lockingScriptFromDecodedCashaddr(decodedAddr)
   const scripthash = toScripthashHex(targetScript)
 
-  return await withFileCache(
+  const redis = getRedisClient()
+
+  // Cache address transactions for 60 seconds (balances change frequently)
+  return await withCache(
+    redis,
     `address:${address}:${cursor}:${limit}`,
-    30_000,
+    60,
     async () => {
       const fulcrum = createFulcrumClient()
       try {
@@ -552,10 +556,9 @@ export default defineEventHandler(async (event) => {
       tokenMeta,
       items: results
     }
-  } finally {
+    } finally {
       fulcrum.close()
     }
-    }
-  )
+  })
 })
 

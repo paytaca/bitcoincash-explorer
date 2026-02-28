@@ -1,10 +1,10 @@
 import { bchRpc } from '../../utils/bchRpc'
-import { withFileCache } from '../../utils/cache'
-import { getRedisClient } from '../../utils/redis'
+import { getRedisClient, withCache } from '../../utils/redis'
 
 export default defineEventHandler(async () => {
-  // Try Redis first (zero RPC calls)
   const redis = getRedisClient()
+
+  // Try Redis pre-processed list first (zero RPC calls)
   if (redis) {
     try {
       const blockData = await redis.lindex('bch:blocks:latest', 0)
@@ -19,8 +19,8 @@ export default defineEventHandler(async () => {
     }
   }
 
-  // Fallback to RPC with file cache
-  return await withFileCache('blockcount', 10_000, async () => {
+  // Fallback to RPC with Redis cache (30 seconds TTL for frequently changing data)
+  return await withCache(redis, 'blockcount', 30, async () => {
     console.log('Fetching blockcount from RPC...')
     return await bchRpc<number>('getblockcount')
   })

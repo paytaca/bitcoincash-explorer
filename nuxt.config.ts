@@ -97,6 +97,8 @@ export default defineNuxtConfig({
 
   nitro: {
     storage: {
+      // Note: API routes now use Redis directly via ioredis.
+      // The cachedData mount is kept as a fallback for any legacy code.
       cachedData: { driver: 'fs', base: './.cache/nitro' }
     },
     routeRules: {

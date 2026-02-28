@@ -1,9 +1,8 @@
 import { bchRpc } from "../../../utils/bchRpc";
-import { withFileCache } from "../../../utils/cache";
-import { getRedisClient, getLatestBlocks, BlockData } from "../../../utils/redis";
+import { getRedisClient, getLatestBlocks } from "../../../utils/redis";
 
-export default defineEventHandler(async (event) => {
-  // Try Redis first (zero RPC calls)
+export default defineEventHandler(async () => {
+  // Try Redis first (zero RPC calls) - pre-processed by ZMQ worker
   const redis = getRedisClient();
   if (redis) {
     try {
@@ -23,43 +22,41 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // Fallback to RPC with file cache
-  return await withFileCache("blocks:latest", 5 * 60_000, async () => {
-    console.log('Fetching blocks from RPC...');
-    
-    // Get the current tip
-    const blockCount = await bchRpc("getblockcount");
-    const tip = Number(blockCount);
+  // Fallback to direct RPC without caching (blocks served from Redis are pre-processed)
+  console.log('Fetching blocks from RPC...');
 
-    if (Number.isNaN(tip)) {
-      throw new Error("Invalid block count from RPC");
+  // Get the current tip
+  const blockCount = await bchRpc("getblockcount");
+  const tip = Number(blockCount);
+
+  if (Number.isNaN(tip)) {
+    throw new Error("Invalid block count from RPC");
+  }
+
+  // Fetch last 15 blocks
+  const heights = Array.from({ length: 15 }, (_, i) => tip - i);
+  const blocks = [];
+
+  for (const height of heights) {
+    try {
+      const hash = await bchRpc("getblockhash", [height]);
+      const block = await bchRpc("getblock", [hash, 2]); // verbosity 2 for tx details
+
+      blocks.push({
+        hash: block.hash,
+        height: block.height,
+        time: block.time,
+        size: block.size,
+        txCount: Array.isArray(block.tx) ? block.tx.length : 0,
+        miner: extractMinerFromBlock(block),
+      });
+    } catch (e) {
+      console.error(`Failed to fetch block at height ${height}:`, e);
+      // Continue with other blocks
     }
+  }
 
-    // Fetch last 15 blocks
-    const heights = Array.from({ length: 15 }, (_, i) => tip - i);
-    const blocks = [];
-
-    for (const height of heights) {
-      try {
-        const hash = await bchRpc("getblockhash", [height]);
-        const block = await bchRpc("getblock", [hash, 2]); // verbosity 2 for tx details
-
-        blocks.push({
-          hash: block.hash,
-          height: block.height,
-          time: block.time,
-          size: block.size,
-          txCount: Array.isArray(block.tx) ? block.tx.length : 0,
-          miner: extractMinerFromBlock(block),
-        });
-      } catch (e) {
-        console.error(`Failed to fetch block at height ${height}:`, e);
-        // Continue with other blocks
-      }
-    }
-
-    return blocks;
-  });
+  return blocks;
 });
 
 function extractMinerFromBlock(b: any): string | undefined {
