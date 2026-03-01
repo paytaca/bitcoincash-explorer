@@ -721,5 +721,25 @@ html.dark .dirBadge.isReceived {
 .error {
   color: var(--color-error);
 }
+@media (max-width: 640px) {
+  .txTable th:nth-child(4),
+  .txTable td.timeCell {
+    display: none;
+  }
+  .txTable th,
+  .txTable td {
+    padding: 8px 6px;
+  }
+  .txTable th:first-child,
+  .txTable td.txIdCell {
+    padding-left: 0;
+  }
+  .txIdCell {
+    gap: 2px;
+  }
+  .timeAbs {
+    display: none;
+  }
+}
 </style>
 
