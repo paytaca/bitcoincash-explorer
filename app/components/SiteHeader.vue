@@ -44,6 +44,26 @@
           </svg>
         </span>
       </button>
+
+      <div ref="menuContainerRef" class="menuContainer">
+        <button
+          type="button"
+          class="menuButton"
+          :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
+          :aria-expanded="menuOpen"
+          @click="menuOpen = !menuOpen"
+        >
+          <svg class="menuIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+
+        <nav v-if="menuOpen" class="menuDropdown">
+          <NuxtLink to="/broadcast" class="menuLink" @click="menuOpen = false">Broadcast Transaction</NuxtLink>
+        </nav>
+      </div>
     </div>
   </header>
 </template>
@@ -54,6 +74,20 @@ const router = useRouter()
 const { isDark } = useTheme()
 const q = ref('')
 const invalid = ref(false)
+const menuOpen = ref(false)
+const menuContainerRef = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    if (menuContainerRef.value && !menuContainerRef.value.contains(event.target as Node)) {
+      menuOpen.value = false
+    }
+  }
+  document.addEventListener('click', handleClickOutside)
+  onUnmounted(() => {
+    document.removeEventListener('click', handleClickOutside)
+  })
+})
 
 function normalizeTxid(v: string) {
   return v.trim().toLowerCase().replace(/^0x/, '')
@@ -127,7 +161,7 @@ watch(
   margin: 0 auto;
   padding: 14px 16px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   column-gap: 14px;
   row-gap: 12px;
@@ -222,16 +256,85 @@ watch(
   height: 20px;
 }
 
+.menuContainer {
+  position: relative;
+}
+
+.menuButton {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.menuButton:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border-subtle);
+}
+
+.menuIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.menuDropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  min-width: 180px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  z-index: 100;
+}
+
+.menuLink {
+  display: block;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  border-radius: 8px;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.menuLink:hover {
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.menuLink.router-link-active {
+  color: var(--color-link);
+}
+
 @media (max-width: 720px) {
   .inner {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto;
     grid-template-areas:
-      "brand theme"
-      "search search";
+      "brand menu theme"
+      "search search search";
+    column-gap: 8px;
   }
   .brand {
     grid-area: brand;
     padding: 4px 0;
+  }
+  .menuContainer {
+    grid-area: menu;
   }
   .search {
     grid-area: search;
@@ -247,6 +350,10 @@ watch(
   .title {
     font-size: 15px;
     max-width: 100%;
+  }
+  .menuDropdown {
+    right: 0;
+    left: auto;
   }
 }
 </style>
