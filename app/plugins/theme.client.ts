@@ -8,7 +8,11 @@ export default defineNuxtPlugin(() => {
   } catch {}
 
   function apply() {
-    document.documentElement.classList.toggle('dark', isDark.value)
+    const dark = isDark.value
+    document.documentElement.classList.toggle('dark', dark)
+    document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+      btn.setAttribute('data-dark', String(dark))
+    })
   }
   apply()
   watch(isDark, apply)

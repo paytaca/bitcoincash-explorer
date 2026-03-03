@@ -33,6 +33,7 @@
         :data-dark="isDark"
         :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
         :title="isDark ? 'Light mode' : 'Dark mode'"
+        @click="toggleTheme"
       >
         <span class="iconWrap" aria-hidden="true">
           <svg data-icon="sun" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -71,7 +72,7 @@
 <script setup lang="ts">
 const route = useRoute()
 const router = useRouter()
-const { isDark } = useTheme()
+const { isDark, toggleTheme } = useTheme()
 const q = ref('')
 const invalid = ref(false)
 const menuOpen = ref(false)

@@ -20,15 +20,5 @@
       if (btn) btn.setAttribute('data-dark', getDark() ? 'true' : 'false');
     }
     document.querySelectorAll('[data-theme-toggle]').forEach(syncButton);
-    document.addEventListener('click', function (e) {
-      var btn = e.target && e.target.closest && e.target.closest('[data-theme-toggle]');
-      if (!btn) return;
-      var dark = getDark();
-      var next = dark ? 'light' : 'dark';
-      setStored(next);
-      applyDark(next === 'dark');
-      syncButton(btn);
-      try { window.dispatchEvent(new CustomEvent('theme-toggled', { detail: { dark: next === 'dark' } })); } catch (e) {}
-    });
   });
 })();
