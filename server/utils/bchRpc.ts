@@ -6,7 +6,7 @@ type JsonRpcFailure = { result: null; error: { code: number; message: string }; 
 type JsonRpcResponse<T> = JsonRpcSuccess<T> | JsonRpcFailure
 
 // Concurrency control to prevent overwhelming the BCH node
-const MAX_CONCURRENT_RPC = 5
+const MAX_CONCURRENT_RPC = 20
 let activeRequests = 0
 const requestQueue: Array<() => void> = []
 

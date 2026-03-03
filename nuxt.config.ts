@@ -107,12 +107,14 @@ export default defineNuxtConfig({
       // Block hash by height is a permanent mapping - cache for 1 week
       '/api/bch/blockhash/**': { cache: { swr: true, maxAge: 60 * 60 * 24 * 7 } },
       // BCMR metadata rarely changes; cache for fast repeated lookups.
-      '/api/bcmr/token/**': { cache: { swr: true, maxAge: 60 * 60 } }
+      '/api/bcmr/token/**': { cache: { swr: true, maxAge: 60 * 60 } },
+      // Transaction data is immutable once confirmed - cache for 1 hour
+      '/api/bch/tx/**': { cache: { swr: true, maxAge: 60 * 60 } }
     },
     // Worker configuration to limit concurrent memory usage
     worker: true,
     minWorkers: 1,
-    maxWorkers: 2,
+    maxWorkers: 1,
     // Memory optimization: close connections more aggressively
     timing: false
   }

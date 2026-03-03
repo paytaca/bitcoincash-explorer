@@ -112,7 +112,7 @@ export default defineEventHandler(async (event) => {
     async () => {
       let tx: any
       try {
-        tx = await bchRpc<any>('getrawtransaction', [txid, 2], 30000, { maxRetries: 2 })
+        tx = await bchRpc<any>('getrawtransaction', [txid, 2], 120000, { maxRetries: 2 })
       } catch (e) {
         if (isTxNotFoundError(e)) {
           throw createError({ statusCode: 404, statusMessage: 'Transaction not found' })
