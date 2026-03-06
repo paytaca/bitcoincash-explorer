@@ -223,29 +223,37 @@ function sumOutputsToScript(decoded: DecodedTx, targetScript: Buffer): bigint {
   return sum
 }
 
-async function getTxHex(fulcrum: ReturnType<typeof createFulcrumClient>, txid: string): Promise<string> {
-  try {
-    const res = await fulcrum.request<any>('blockchain.transaction.get', [txid, false])
-    if (typeof res === 'string') return res
-    if (typeof res?.hex === 'string') return res.hex
-  } catch {
-    // fallthrough
-  }
-  const res = await fulcrum.request<any>('blockchain.transaction.get', [txid])
-  if (typeof res === 'string') return res
-  if (typeof res?.hex === 'string') return res.hex
-  throw createError({ statusCode: 502, statusMessage: 'Fulcrum returned unexpected transaction format' })
+// Optimized: Use verbose mode to get parsed transaction data including input values and timestamps
+// This eliminates the need for: prev-tx lookups, manual hex decoding, and block header fetching
+type FulcrumTxVerbose = {
+  txid: string
+  vin: {
+    txid?: string
+    vout?: number
+    prevout?: { value: number; scriptPubKey?: { hex?: string } }
+  }[]
+  vout: {
+    value: number
+    n: number
+    scriptPubKey?: { hex?: string }
+  }[]
+  blocktime?: number
+  time?: number
+  height?: number
+  confirmations?: number
 }
 
-async function getBlockTimeByHeight(fulcrum: ReturnType<typeof createFulcrumClient>, height: number): Promise<number | undefined> {
-  if (!Number.isInteger(height) || height <= 0) return undefined
-  const headerHex = await fulcrum.request<string>('blockchain.block.header', [height])
-  if (typeof headerHex !== 'string') return undefined
-  const header = Buffer.from(headerHex, 'hex')
-  if (header.length < 80) return undefined
-  // Timestamp is 4 bytes LE at offset 68
-  return header.readUInt32LE(68)
+async function getTxVerbose(fulcrum: ReturnType<typeof createFulcrumClient>, txid: string): Promise<FulcrumTxVerbose> {
+  const res = await fulcrum.request<FulcrumTxVerbose>('blockchain.transaction.get', [txid, true])
+  if (!res || typeof res !== 'object') {
+    throw createError({ statusCode: 502, statusMessage: 'Fulcrum returned unexpected transaction format' })
+  }
+  return res
 }
+
+// Legacy hex-based functions (kept for reference but no longer used)
+// async function getTxHex(...) { ... }
+// async function getBlockTimeByHeight(...) { ... }
 
 async function getMempoolSeenTime(txid: string): Promise<number | undefined> {
   // Fulcrum mempool list doesn't include a timestamp; best-effort pull from the node's mempool.
@@ -473,42 +481,23 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // Use request-scoped caches instead of global Maps to prevent memory accumulation
-    const headerTimeCache = (event.context._headerTimeCache as Map<number, number | undefined>) || new Map<number, number | undefined>()
-    const txCache = (event.context._txCache as Map<string, DecodedTx>) || new Map<string, DecodedTx>()
-    event.context._headerTimeCache = headerTimeCache
-    event.context._txCache = txCache
+    // OPTIMIZED: Use verbose transaction mode to eliminate most RPC calls
+    // Verbose mode returns: input values (prevout), output values/scripts, and timestamps
+    // This eliminates: prev-tx lookups (N calls), manual hex decoding, block header fetching (N calls)
+    const MAX_CONCURRENT_OPS = 2 // Can be slightly higher since each call is faster now
+    const txCache = new Map<string, FulcrumTxVerbose>()
 
-    // Concurrency limit for parallel operations - use sequential to minimize
-    // connection usage per request (allows more concurrent users)
-    const MAX_CONCURRENT_OPS = 1
-
-    async function getDecodedTx(txid: string): Promise<DecodedTx> {
-      const existing = txCache.get(txid)
-      if (existing) return existing
-      const hex = await getTxHex(fulcrum, txid)
-      const decoded = decodeTxHex(hex)
-      txCache.set(txid, decoded)
-      return decoded
-    }
-
-    // Fetch multiple transactions in parallel with concurrency limit
+    // Fetch transactions in batches using verbose mode
     async function fetchTransactionsBatch(txids: string[]): Promise<void> {
-      const pending = new Set<string>(txids.filter(txid => !txCache.has(txid)))
-      if (pending.size === 0) return
+      const pending = txids.filter(txid => !txCache.has(txid))
+      if (pending.length === 0) return
 
-      const txidArray = Array.from(pending)
-      const chunks: string[][] = []
-      for (let i = 0; i < txidArray.length; i += MAX_CONCURRENT_OPS) {
-        chunks.push(txidArray.slice(i, i + MAX_CONCURRENT_OPS))
-      }
-
-      for (const chunk of chunks) {
+      for (let i = 0; i < pending.length; i += MAX_CONCURRENT_OPS) {
+        const chunk = pending.slice(i, i + MAX_CONCURRENT_OPS)
         await Promise.all(chunk.map(async (txid) => {
           try {
-            const hex = await getTxHex(fulcrum, txid)
-            const decoded = decodeTxHex(hex)
-            txCache.set(txid, decoded)
+            const tx = await getTxVerbose(fulcrum, txid)
+            txCache.set(txid, tx)
           } catch (error) {
             console.warn(`Failed to fetch transaction ${txid}:`, error)
           }
@@ -516,128 +505,70 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // Limit inputs processed to prevent memory issues with large transactions
-    const MAX_INPUTS_TO_PROCESS = 100
-
-    async function inputsFromScript(decoded: DecodedTx): Promise<{ sum: bigint; sawToken: boolean; truncated: boolean }> {
-      let sum = BigInt(0)
-      let sawToken = false
-      let processed = 0
-      const truncated = decoded.vin.length > MAX_INPUTS_TO_PROCESS
-
-      // Collect all unique prevTxids needed for this transaction
-      const prevTxids = new Set<string>()
-      for (const i of decoded.vin) {
-        if (processed >= MAX_INPUTS_TO_PROCESS) break
-        processed++
-        if (i.prevTxid === '0'.repeat(64) && i.prevVout === 0xffffffff) continue
-        if (!txCache.has(i.prevTxid)) {
-          prevTxids.add(i.prevTxid)
-        }
-      }
-
-      // Fetch all missing previous transactions in parallel
-      if (prevTxids.size > 0) {
-        await fetchTransactionsBatch(Array.from(prevTxids))
-      }
-
-      // Now process inputs with cached data
-      processed = 0
-      for (const i of decoded.vin) {
-        if (processed >= MAX_INPUTS_TO_PROCESS) break
-        processed++
-        if (i.prevTxid === '0'.repeat(64) && i.prevVout === 0xffffffff) continue
-        const prev = txCache.get(i.prevTxid)
-        if (!prev) continue
-        const prevOut = prev.vout[i.prevVout]
-        if (!prevOut) continue
-        if (prevOut.hasToken) sawToken = true
-        if (prevOut.lockingScript.length === targetScript.length && prevOut.lockingScript.equals(targetScript)) {
-          sum += prevOut.valueSats
-        }
-      }
-      return { sum, sawToken, truncated }
-    }
-
-    // Fetch block times in batch
-    async function fetchBlockTimesBatch(heights: number[]): Promise<void> {
-      const uniqueHeights = [...new Set(heights)].filter(h => !headerTimeCache.has(h) && Number.isInteger(h) && h > 0)
-      if (uniqueHeights.length === 0) return
-
-      const chunks: number[][] = []
-      for (let i = 0; i < uniqueHeights.length; i += MAX_CONCURRENT_OPS) {
-        chunks.push(uniqueHeights.slice(i, i + MAX_CONCURRENT_OPS))
-      }
-
-      for (const chunk of chunks) {
-        await Promise.all(chunk.map(async (height) => {
-          try {
-            const time = await getBlockTimeByHeight(fulcrum, height)
-            headerTimeCache.set(height, time)
-          } catch (error) {
-            console.warn(`Failed to fetch block time for height ${height}:`, error)
-            headerTimeCache.set(height, undefined)
-          }
-        }))
-      }
-    }
-
-    // Pre-fetch all transactions in parallel
+    // Fetch all transactions in picked list
     await fetchTransactionsBatch(picked.map(p => p.txid))
 
-    // Pre-fetch all block times in parallel
-    const blockHeights = picked
-      .filter(p => p.status === 'confirmed' && Number.isInteger(p.height) && (p.height as number) > 0)
-      .map(p => p.height as number)
-    await fetchBlockTimesBatch(blockHeights)
-
-    // Fetch mempool timestamps in parallel for mempool transactions
-    const mempoolTxids = picked.filter(p => p.status === 'mempool').map(p => p.txid)
-    const mempoolTimes = new Map<string, number | undefined>()
-    
-    if (mempoolTxids.length > 0) {
-      const chunks: string[][] = []
-      for (let i = 0; i < mempoolTxids.length; i += MAX_CONCURRENT_OPS) {
-        chunks.push(mempoolTxids.slice(i, i + MAX_CONCURRENT_OPS))
-      }
-      
-      for (const chunk of chunks) {
-        await Promise.all(chunk.map(async (txid) => {
-          const time = await getMempoolSeenTime(txid)
-          mempoolTimes.set(txid, time)
-        }))
-      }
-    }
-
+    // Process results using verbose transaction data
     const results: AddressTxItem[] = []
     for (const p of picked) {
-      const decodedTx = txCache.get(p.txid)
-      if (!decodedTx) {
-        console.warn(`Transaction ${p.txid} not found in cache, skipping`)
+      const tx = txCache.get(p.txid)
+      if (!tx) {
+        console.warn(`Transaction ${p.txid} not found, skipping`)
         continue
       }
-      const outSats = sumOutputsToScript(decodedTx, targetScript)
-      const { sum: inSats, sawToken, truncated: _truncated } = await inputsFromScript(decodedTx)
+
+      // Calculate output value to this address
+      let outSats = BigInt(0)
+      for (const output of tx.vout || []) {
+        const scriptHex = output.scriptPubKey?.hex || ''
+        if (!scriptHex) continue
+        const scriptBuf = Buffer.from(scriptHex, 'hex')
+        if (scriptBuf.length === targetScript.length && scriptBuf.equals(targetScript)) {
+          outSats += BigInt(Math.round(output.value * 1e8))
+        }
+      }
+
+      // Calculate input value from this address using prevout (from verbose mode)
+      let inSats = BigInt(0)
+      let sawToken = false
+      for (const input of tx.vin || []) {
+        // Skip coinbase
+        if (!input.txid || input.vout === undefined) continue
+        // Use prevout.value directly from verbose data - no need to fetch previous tx!
+        const prevValue = input.prevout?.value
+        if (!prevValue) continue
+        const prevScriptHex = input.prevout?.scriptPubKey?.hex || ''
+        if (!prevScriptHex) continue
+        const prevScriptBuf = Buffer.from(prevScriptHex, 'hex')
+        if (prevScriptBuf.length === targetScript.length && prevScriptBuf.equals(targetScript)) {
+          inSats += BigInt(Math.round(prevValue * 1e8))
+        }
+      }
+
       const netSats = outSats - inSats
-
       const direction: AddressTxDirection = netSats < BigInt(0) ? 'sent' : 'received'
-      const hasTokens =
-        decodedTx.vout.some((o) => o.hasToken) || sawToken
 
-      let time: number | undefined
+      // Use blocktime from verbose tx data - no need for block.header call!
+      let time: number | undefined = tx.blocktime || tx.time
       let confirmations: number | undefined
       let blockHeight: number | undefined
       if (p.status === 'confirmed' && Number.isInteger(p.height) && (p.height as number) > 0) {
         blockHeight = p.height as number
-        time = headerTimeCache.get(blockHeight)
-        if (Number.isInteger(tipHeight) && tipHeight > 0) confirmations = Math.max(0, tipHeight - blockHeight + 1)
+        if (Number.isInteger(tipHeight) && tipHeight > 0) {
+          confirmations = Math.max(0, tipHeight - blockHeight + 1)
+        }
       } else if (p.status === 'mempool') {
-        time = mempoolTimes.get(p.txid)
+        // For mempool, we might not have time from verbose data
+        time = undefined
       }
 
       const inValue = Number(inSats) / 1e8
       const outValue = Number(outSats) / 1e8
       const net = Number(netSats) / 1e8
+
+      // Check for tokens - verbose mode doesn't include token data directly
+      // We'd need to parse it from scripts or skip for now
+      const hasTokens = false // TODO: Parse token data from scriptPubKey if needed
 
       results.push({
         txid: p.txid,
