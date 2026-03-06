@@ -5,6 +5,14 @@ import { getTokenMeta } from '../../../../utils/bcmr'
 import { bchRpc } from '../../../../utils/bchRpc'
 import { getRedisClient, withCache } from '../../../../utils/redis'
 
+// Request deduplication to prevent concurrent identical requests from exhausting the pool
+const inFlightRequests = new Map<string, Promise<any>>()
+const INFLIGHT_CACHE_MS = 5000 // 5 seconds
+
+function generateCacheKey(address: string, cursor: number, limit: number): string {
+  return `${address}:${cursor}:${limit}`
+}
+
 type AddressTxStatus = 'mempool' | 'confirmed'
 type AddressTxDirection = 'sent' | 'received'
 
@@ -251,6 +259,7 @@ async function getMempoolSeenTime(txid: string): Promise<number | undefined> {
 }
 
 export default defineEventHandler(async (event) => {
+  const startTime = Date.now()
   const addressParam = getRouterParam(event, 'address')
   if (!addressParam) throw createError({ statusCode: 400, statusMessage: 'Missing address' })
   const address = safeDecodePathParam(addressParam)
@@ -269,10 +278,18 @@ export default defineEventHandler(async (event) => {
   const targetScript = lockingScriptFromDecodedCashaddr(decodedAddr)
   const scripthash = toScripthashHex(targetScript)
 
+  // Request deduplication: if another request for the same address/cursor/limit is in flight,
+  // wait for it and return its result instead of making duplicate Fulcrum calls
+  const inflightKey = generateCacheKey(address, cursor, limit)
+  const existingRequest = inFlightRequests.get(inflightKey)
+  if (existingRequest) {
+    return await existingRequest
+  }
+
   const redis = getRedisClient()
 
   // Cache address transactions for 60 seconds (balances change frequently)
-  return await withCache(
+  const requestPromise = withCache(
     redis,
     `address:${address}:${cursor}:${limit}`,
     60,
@@ -359,18 +376,28 @@ export default defineEventHandler(async (event) => {
         return (b.nftCount || 0) - (a.nftCount || 0)
       })
 
-      // BCMR token metadata (best-effort)
+      // BCMR token metadata (best-effort) with concurrency limit
       const config = useRuntimeConfig()
       const bcmrBaseUrl = String((config as any).bcmrBaseUrl || '').trim()
       if (bcmrBaseUrl) {
         const categories = tokenBalances.map((t) => t.category)
-        const entries = await Promise.all(
-          categories.map(async (cat) => {
-            const meta = await getTokenMeta(cat, bcmrBaseUrl)
-            return [cat, meta] as const
-          })
-        )
-        Object.assign(tokenMeta, Object.fromEntries(entries))
+        
+        // Process BCMR fetches sequentially to minimize connection usage
+        const MAX_CONCURRENT_BCMR = 1
+        const chunks: string[][] = []
+        for (let i = 0; i < categories.length; i += MAX_CONCURRENT_BCMR) {
+          chunks.push(categories.slice(i, i + MAX_CONCURRENT_BCMR))
+        }
+        
+        for (const chunk of chunks) {
+          const entries = await Promise.all(
+            chunk.map(async (cat) => {
+              const meta = await getTokenMeta(cat, bcmrBaseUrl)
+              return [cat, meta] as const
+            })
+          )
+          Object.assign(tokenMeta, Object.fromEntries(entries))
+        }
       }
     } catch {
       // token balances are optional; ignore if Fulcrum doesn't support tokens_only
@@ -452,6 +479,10 @@ export default defineEventHandler(async (event) => {
     event.context._headerTimeCache = headerTimeCache
     event.context._txCache = txCache
 
+    // Concurrency limit for parallel operations - use sequential to minimize
+    // connection usage per request (allows more concurrent users)
+    const MAX_CONCURRENT_OPS = 1
+
     async function getDecodedTx(txid: string): Promise<DecodedTx> {
       const existing = txCache.get(txid)
       if (existing) return existing
@@ -459,6 +490,30 @@ export default defineEventHandler(async (event) => {
       const decoded = decodeTxHex(hex)
       txCache.set(txid, decoded)
       return decoded
+    }
+
+    // Fetch multiple transactions in parallel with concurrency limit
+    async function fetchTransactionsBatch(txids: string[]): Promise<void> {
+      const pending = new Set<string>(txids.filter(txid => !txCache.has(txid)))
+      if (pending.size === 0) return
+
+      const txidArray = Array.from(pending)
+      const chunks: string[][] = []
+      for (let i = 0; i < txidArray.length; i += MAX_CONCURRENT_OPS) {
+        chunks.push(txidArray.slice(i, i + MAX_CONCURRENT_OPS))
+      }
+
+      for (const chunk of chunks) {
+        await Promise.all(chunk.map(async (txid) => {
+          try {
+            const hex = await getTxHex(fulcrum, txid)
+            const decoded = decodeTxHex(hex)
+            txCache.set(txid, decoded)
+          } catch (error) {
+            console.warn(`Failed to fetch transaction ${txid}:`, error)
+          }
+        }))
+      }
     }
 
     // Limit inputs processed to prevent memory issues with large transactions
@@ -470,14 +525,30 @@ export default defineEventHandler(async (event) => {
       let processed = 0
       const truncated = decoded.vin.length > MAX_INPUTS_TO_PROCESS
 
+      // Collect all unique prevTxids needed for this transaction
+      const prevTxids = new Set<string>()
       for (const i of decoded.vin) {
-        // Limit processing to prevent memory exhaustion on large transactions
         if (processed >= MAX_INPUTS_TO_PROCESS) break
         processed++
-
-        // Coinbase input
         if (i.prevTxid === '0'.repeat(64) && i.prevVout === 0xffffffff) continue
-        const prev = await getDecodedTx(i.prevTxid)
+        if (!txCache.has(i.prevTxid)) {
+          prevTxids.add(i.prevTxid)
+        }
+      }
+
+      // Fetch all missing previous transactions in parallel
+      if (prevTxids.size > 0) {
+        await fetchTransactionsBatch(Array.from(prevTxids))
+      }
+
+      // Now process inputs with cached data
+      processed = 0
+      for (const i of decoded.vin) {
+        if (processed >= MAX_INPUTS_TO_PROCESS) break
+        processed++
+        if (i.prevTxid === '0'.repeat(64) && i.prevVout === 0xffffffff) continue
+        const prev = txCache.get(i.prevTxid)
+        if (!prev) continue
         const prevOut = prev.vout[i.prevVout]
         if (!prevOut) continue
         if (prevOut.hasToken) sawToken = true
@@ -488,9 +559,63 @@ export default defineEventHandler(async (event) => {
       return { sum, sawToken, truncated }
     }
 
+    // Fetch block times in batch
+    async function fetchBlockTimesBatch(heights: number[]): Promise<void> {
+      const uniqueHeights = [...new Set(heights)].filter(h => !headerTimeCache.has(h) && Number.isInteger(h) && h > 0)
+      if (uniqueHeights.length === 0) return
+
+      const chunks: number[][] = []
+      for (let i = 0; i < uniqueHeights.length; i += MAX_CONCURRENT_OPS) {
+        chunks.push(uniqueHeights.slice(i, i + MAX_CONCURRENT_OPS))
+      }
+
+      for (const chunk of chunks) {
+        await Promise.all(chunk.map(async (height) => {
+          try {
+            const time = await getBlockTimeByHeight(fulcrum, height)
+            headerTimeCache.set(height, time)
+          } catch (error) {
+            console.warn(`Failed to fetch block time for height ${height}:`, error)
+            headerTimeCache.set(height, undefined)
+          }
+        }))
+      }
+    }
+
+    // Pre-fetch all transactions in parallel
+    await fetchTransactionsBatch(picked.map(p => p.txid))
+
+    // Pre-fetch all block times in parallel
+    const blockHeights = picked
+      .filter(p => p.status === 'confirmed' && Number.isInteger(p.height) && (p.height as number) > 0)
+      .map(p => p.height as number)
+    await fetchBlockTimesBatch(blockHeights)
+
+    // Fetch mempool timestamps in parallel for mempool transactions
+    const mempoolTxids = picked.filter(p => p.status === 'mempool').map(p => p.txid)
+    const mempoolTimes = new Map<string, number | undefined>()
+    
+    if (mempoolTxids.length > 0) {
+      const chunks: string[][] = []
+      for (let i = 0; i < mempoolTxids.length; i += MAX_CONCURRENT_OPS) {
+        chunks.push(mempoolTxids.slice(i, i + MAX_CONCURRENT_OPS))
+      }
+      
+      for (const chunk of chunks) {
+        await Promise.all(chunk.map(async (txid) => {
+          const time = await getMempoolSeenTime(txid)
+          mempoolTimes.set(txid, time)
+        }))
+      }
+    }
+
     const results: AddressTxItem[] = []
     for (const p of picked) {
-      const decodedTx = await getDecodedTx(p.txid)
+      const decodedTx = txCache.get(p.txid)
+      if (!decodedTx) {
+        console.warn(`Transaction ${p.txid} not found in cache, skipping`)
+        continue
+      }
       const outSats = sumOutputsToScript(decodedTx, targetScript)
       const { sum: inSats, sawToken, truncated: _truncated } = await inputsFromScript(decodedTx)
       const netSats = outSats - inSats
@@ -504,13 +629,10 @@ export default defineEventHandler(async (event) => {
       let blockHeight: number | undefined
       if (p.status === 'confirmed' && Number.isInteger(p.height) && (p.height as number) > 0) {
         blockHeight = p.height as number
-        if (!headerTimeCache.has(blockHeight)) {
-          headerTimeCache.set(blockHeight, await getBlockTimeByHeight(fulcrum, blockHeight))
-        }
         time = headerTimeCache.get(blockHeight)
         if (Number.isInteger(tipHeight) && tipHeight > 0) confirmations = Math.max(0, tipHeight - blockHeight + 1)
       } else if (p.status === 'mempool') {
-        time = await getMempoolSeenTime(p.txid)
+        time = mempoolTimes.get(p.txid)
       }
 
       const inValue = Number(inSats) / 1e8
@@ -560,5 +682,23 @@ export default defineEventHandler(async (event) => {
       fulcrum.close()
     }
   })
+
+  // Store in-flight request and clean up after completion
+  inFlightRequests.set(inflightKey, requestPromise)
+  requestPromise
+    .then((result) => {
+      const duration = Date.now() - startTime
+      console.log(`[Address API] Success for ${address} in ${duration}ms (${result.items?.length || 0} txs)`)
+      setTimeout(() => {
+        inFlightRequests.delete(inflightKey)
+      }, INFLIGHT_CACHE_MS)
+    })
+    .catch((error) => {
+      const duration = Date.now() - startTime
+      console.error(`[Address API] Failed for ${address} after ${duration}ms:`, error?.statusMessage || error?.message)
+      inFlightRequests.delete(inflightKey)
+    })
+
+  return await requestPromise
 })
 
