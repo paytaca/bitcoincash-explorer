@@ -10,6 +10,24 @@ const MAX_CONCURRENT_RPC = 20
 let activeRequests = 0
 const requestQueue: Array<() => void> = []
 
+// Request deduplication - prevents multiple identical concurrent RPC calls
+type PendingRequest<T> = { promise: Promise<T>; timestamp: number }
+const pendingRequests = new Map<string, PendingRequest<any>>()
+const DEDUP_TIMEOUT_MS = 5000 // Clean up dedup entries after 5 seconds
+
+function getRequestKey(method: string, params: unknown[]): string {
+  return `${method}:${JSON.stringify(params)}`
+}
+
+function cleanupOldPendingRequests(): void {
+  const now = Date.now()
+  for (const [key, pending] of pendingRequests) {
+    if (now - pending.timestamp > DEDUP_TIMEOUT_MS) {
+      pendingRequests.delete(key)
+    }
+  }
+}
+
 async function acquireSlot(): Promise<void> {
   if (activeRequests < MAX_CONCURRENT_RPC) {
     activeRequests++
@@ -93,80 +111,106 @@ export async function bchRpc<T>(
       ? 'Basic ' + Buffer.from(`${bchRpcUser}:${bchRpcPass}`).toString('base64')
       : undefined
 
-  let lastError: Error | undefined
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    await acquireSlot()
-    
-    try {
-      const result = await withCircuitBreaker(async () => {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-        try {
-          const res = await $fetch<JsonRpcResponse<T>>(bchRpcUrl, {
-            method: 'POST',
-            headers: {
-              ...(auth ? { Authorization: auth } : {}),
-              'Content-Type': 'application/json',
-              'Connection': 'keep-alive'
-            },
-            body: {
-              jsonrpc: '1.0',
-              id: 'nuxt',
-              method,
-              params
-            },
-            signal: controller.signal
-          })
-
-          if (res.error) {
-            throw createError({
-              statusCode: 502,
-              statusMessage: `BCH RPC error (${res.error.code}): ${res.error.message}`
-            })
-          }
-
-          return res.result
-        } catch (e: any) {
-          if (e?.name === 'AbortError') {
-            throw createError({ statusCode: 504, statusMessage: 'BCH RPC request timed out' })
-          }
-          throw e
-        } finally {
-          clearTimeout(timeoutId)
-        }
-      })
-
-      return result
-    } catch (e: any) {
-      lastError = e
-      
-      // Don't retry on client errors (4xx)
-      if (e?.statusCode >= 400 && e?.statusCode < 500 && !isWorkQueueError(e)) {
-        throw e
-      }
-      
-      // Circuit breaker is open, don't retry
-      if (e?.statusCode === 503 && e?.statusMessage?.includes('circuit breaker')) {
-        throw e
-      }
-      
-      // Last attempt failed, throw the error
-      if (attempt === maxRetries) {
-        throw e
-      }
-      
-      // Exponential backoff for work queue errors
-      const backoffDelay = isWorkQueueError(e)
-        ? baseDelayMs * Math.pow(2, attempt) * 2  // Extra delay for work queue
-        : baseDelayMs * Math.pow(2, attempt)
-
-      await delay(Math.min(backoffDelay, 10000)) // Cap at 10 seconds
-    } finally {
-      releaseSlot()
-    }
+  // Check for duplicate in-flight requests
+  const requestKey = getRequestKey(method, params)
+  const existing = pendingRequests.get(requestKey)
+  if (existing) {
+    return existing.promise as Promise<T>
   }
 
-  throw lastError || createError({ statusCode: 500, statusMessage: 'BCH RPC failed after retries' })
+  let lastError: Error | undefined
+
+  // Create the actual RPC call
+  const rpcPromise = (async (): Promise<T> => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      await acquireSlot()
+      
+      try {
+        const result = await withCircuitBreaker(async () => {
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+          try {
+            const res = await $fetch<JsonRpcResponse<T>>(bchRpcUrl, {
+              method: 'POST',
+              headers: {
+                ...(auth ? { Authorization: auth } : {}),
+                'Content-Type': 'application/json',
+                'Connection': 'keep-alive'
+              },
+              body: {
+                jsonrpc: '1.0',
+                id: 'nuxt',
+                method,
+                params
+              },
+              signal: controller.signal
+            })
+
+            if (res.error) {
+              throw createError({
+                statusCode: 502,
+                statusMessage: `BCH RPC error (${res.error.code}): ${res.error.message}`
+              })
+            }
+
+            return res.result
+          } catch (e: any) {
+            if (e?.name === 'AbortError') {
+              throw createError({ statusCode: 504, statusMessage: 'BCH RPC request timed out' })
+            }
+            throw e
+          } finally {
+            clearTimeout(timeoutId)
+          }
+        })
+
+        return result
+      } catch (e: any) {
+        lastError = e
+        
+        // Don't retry on client errors (4xx)
+        if (e?.statusCode >= 400 && e?.statusCode < 500 && !isWorkQueueError(e)) {
+          throw e
+        }
+        
+        // Circuit breaker is open, don't retry
+        if (e?.statusCode === 503 && e?.statusMessage?.includes('circuit breaker')) {
+          throw e
+        }
+        
+        // Last attempt failed, throw the error
+        if (attempt === maxRetries) {
+          throw e
+        }
+        
+        // Exponential backoff for work queue errors
+        const backoffDelay = isWorkQueueError(e)
+          ? baseDelayMs * Math.pow(2, attempt) * 2  // Extra delay for work queue
+          : baseDelayMs * Math.pow(2, attempt)
+
+        await delay(Math.min(backoffDelay, 10000)) // Cap at 10 seconds
+      } finally {
+        releaseSlot()
+      }
+    }
+
+    throw lastError || createError({ statusCode: 500, statusMessage: 'BCH RPC failed after retries' })
+  })()
+
+  // Register this request for deduplication
+  pendingRequests.set(requestKey, { promise: rpcPromise, timestamp: Date.now() })
+
+  // Clean up old entries periodically (simple approach)
+  if (pendingRequests.size > 100) {
+    cleanupOldPendingRequests()
+  }
+
+  try {
+    const result = await rpcPromise
+    return result
+  } finally {
+    // Clean up deduplication entry after completion
+    pendingRequests.delete(requestKey)
+  }
 }

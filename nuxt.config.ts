@@ -111,11 +111,16 @@ export default defineNuxtConfig({
       // Transaction data is immutable once confirmed - cache for 1 hour
       '/api/bch/tx/**': { cache: { swr: true, maxAge: 60 * 60 } }
     },
-    // Worker configuration to limit concurrent memory usage
+    // Worker configuration: use 2 workers for memory/performance balance
+    // With 4GB total, each worker gets ~2GB which is sufficient
     worker: true,
-    minWorkers: 1,
-    maxWorkers: 1,
+    minWorkers: 2,
+    maxWorkers: 2,
     // Memory optimization: close connections more aggressively
-    timing: false
+    timing: false,
+    // Limit concurrent connections per worker to prevent overwhelming BCH node
+    experimental: {
+      wasm: true
+    }
   }
 })

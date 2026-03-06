@@ -1,4 +1,7 @@
+import { getRedisClient, withCache } from './redis'
+
 const BCMR_FETCH_TIMEOUT_MS = 15_000
+const BCMR_CACHE_TTL_SECONDS = 60 * 60 * 24 // Cache for 24 hours (token metadata rarely changes)
 
 export type TokenMeta = { name?: string; symbol?: string; decimals?: number }
 
@@ -43,6 +46,7 @@ function normalizeTokenMeta(payload: unknown): TokenMeta {
  * Fetch BCMR token metadata for a category. Returns normalized { name?, symbol?, decimals? }
  * or {} on failure. Used by the tx API to enrich responses so the client doesn't need a
  * separate BCMR request.
+ * Results are cached in Redis for 24 hours to reduce API load and improve response times.
  */
 export async function getTokenMeta(
   category: string,
@@ -50,6 +54,21 @@ export async function getTokenMeta(
 ): Promise<TokenMeta> {
   const configured = String(bcmrBaseUrl || '').trim()
   if (!configured) return {}
+
+  const redis = getRedisClient()
+  const cacheKey = `bcmr:token:${category}`
+
+  // Try to get from cache first
+  if (redis) {
+    try {
+      const cached = await redis.get(cacheKey)
+      if (cached) {
+        return JSON.parse(cached)
+      }
+    } catch (error) {
+      console.warn('Redis BCMR cache read failed:', error)
+    }
+  }
 
   const base = configured.replace(/\/+$/, '')
   const root = base.endsWith('/api') ? base.slice(0, -4) : base
@@ -78,10 +97,32 @@ export async function getTokenMeta(
   for (const url of candidates) {
     try {
       const payload = await $fetch(url as string, fetchOptions as any)
-      return normalizeTokenMeta(payload)
+      const meta = normalizeTokenMeta(payload)
+      
+      // Cache successful result (even if empty, to avoid repeated failed lookups)
+      if (redis) {
+        try {
+          await redis.setex(cacheKey, BCMR_CACHE_TTL_SECONDS, JSON.stringify(meta))
+        } catch (error) {
+          console.warn('Redis BCMR cache write failed:', error)
+        }
+      }
+      
+      return meta
     } catch {
       // try next candidate
     }
   }
-  return {}
+
+  // Cache empty result to avoid repeated failed lookups
+  const emptyMeta: TokenMeta = {}
+  if (redis) {
+    try {
+      await redis.setex(cacheKey, BCMR_CACHE_TTL_SECONDS, JSON.stringify(emptyMeta))
+    } catch (error) {
+      console.warn('Redis BCMR cache write failed:', error)
+    }
+  }
+  
+  return emptyMeta
 }
