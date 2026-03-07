@@ -417,7 +417,10 @@ func (s *Server) handleRecentTransactions(c *gin.Context) {
 	// Get from Redis (includes mempool + recent confirmed)
 	txs, err := s.redis.GetTransactions(ctx, 20)
 	if err == nil && len(txs) > 0 {
-		c.JSON(http.StatusOK, txs)
+		c.JSON(http.StatusOK, gin.H{
+			"items":     txs,
+			"updatedAt": time.Now().Unix(),
+		})
 		return
 	}
 
@@ -444,12 +447,18 @@ func (s *Server) handleRecentTransactions(c *gin.Context) {
 					}
 				}
 			}
-			c.JSON(http.StatusOK, txs)
+			c.JSON(http.StatusOK, gin.H{
+				"items":     txs,
+				"updatedAt": time.Now().Unix(),
+			})
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, []*types.Transaction{})
+	c.JSON(http.StatusOK, gin.H{
+		"items":     []*types.Transaction{},
+		"updatedAt": time.Now().Unix(),
+	})
 }
 
 // handleTransaction returns transaction details
