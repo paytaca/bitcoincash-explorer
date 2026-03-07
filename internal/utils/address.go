@@ -10,6 +10,7 @@ import (
 
 	"github.com/gcash/bchd/chaincfg"
 	"github.com/gcash/bchutil"
+	"github.com/gcash/bchutil/bech32"
 )
 
 // CashAddress prefixes
@@ -62,7 +63,8 @@ func AddressToScripthash(addr string) (string, error) {
 			// Try regtest
 			decodedAddr, err = bchutil.DecodeAddress(addr, &chaincfg.RegressionNetParams)
 			if err != nil {
-				return "", fmt.Errorf("failed to decode address: %w", err)
+				// bchutil might not support token-aware addresses, try manual decoding
+				return addressToScripthashManual(addr)
 			}
 		}
 	}
@@ -92,6 +94,57 @@ func AddressToScripthash(addr string) (string, error) {
 	h2 := sha256.Sum256(h1[:])
 
 	// Reverse byte order (Fulcrum expects reversed hash)
+	scripthash := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		scripthash[i] = h2[31-i]
+	}
+
+	return hex.EncodeToString(scripthash), nil
+}
+
+// addressToScripthashManual handles token-aware addresses manually
+func addressToScripthashManual(addr string) (string, error) {
+	// Try to decode manually for token-aware addresses
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid address format")
+	}
+
+	// Decode bech32
+	_, data, err := bech32.Decode(addr)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode bech32: %w", err)
+	}
+
+	if len(data) < 1 {
+		return "", fmt.Errorf("address data too short")
+	}
+
+	version := data[0]
+	hash := data[1:]
+
+	var scriptPubKey []byte
+
+	switch version {
+	case 0, 2: // P2PKH or token-aware P2PKH
+		// OP_DUP OP_HASH160 <hash> OP_EQUALVERIFY OP_CHECKSIG
+		scriptPubKey = []byte{0x76, 0xa9, byte(len(hash))}
+		scriptPubKey = append(scriptPubKey, hash...)
+		scriptPubKey = append(scriptPubKey, 0x88, 0xac)
+	case 1, 3: // P2SH or token-aware P2SH
+		// OP_HASH160 <hash> OP_EQUAL
+		scriptPubKey = []byte{0xa9, byte(len(hash))}
+		scriptPubKey = append(scriptPubKey, hash...)
+		scriptPubKey = append(scriptPubKey, 0x87)
+	default:
+		return "", fmt.Errorf("unsupported address version: %d", version)
+	}
+
+	// Double SHA256
+	h1 := sha256.Sum256(scriptPubKey)
+	h2 := sha256.Sum256(h1[:])
+
+	// Reverse byte order
 	scripthash := make([]byte, 32)
 	for i := 0; i < 32; i++ {
 		scripthash[i] = h2[31-i]

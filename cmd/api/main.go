@@ -563,14 +563,16 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 	// Validate address
 	valid, addrType := utils.ValidateCashAddress(address)
 	if !valid {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address"})
+		log.Printf("Address validation failed for: %s", address)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address format"})
 		return
 	}
 
 	// Convert to scripthash
 	scripthash, err := utils.AddressToScripthash(address)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address"})
+		log.Printf("Address to scripthash conversion failed for %s: %v", address, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid address: %v", err)})
 		return
 	}
 
