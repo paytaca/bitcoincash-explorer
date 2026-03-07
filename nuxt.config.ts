@@ -4,11 +4,14 @@ const siteUrl = (env.NUXT_PUBLIC_SITE_URL || env.SITE_URL || 'https://bchexplore
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
+  // Disable SSR - we use Go API server instead
+  ssr: false,
   // Nuxt/Vue devtools can crash SSR in some environments (seen as:
   // "null is not an object (evaluating 'instance.__vrv_devtools = info')").
   // Re-enable once your environment is stable.
   devtools: { enabled: false },
   css: ['~/assets/main.css'],
+  
   vite: {
     build: {
       // Cloudflare/Safari can intermittently fail fetching some module chunks over HTTP/2
@@ -20,6 +23,7 @@ export default defineNuxtConfig({
       }
     }
   },
+  
   app: {
     head: {
       title: 'Bitcoin Cash Explorer',
@@ -96,31 +100,13 @@ export default defineNuxtConfig({
   },
 
   nitro: {
+    output: {
+      publicDir: '.output/public'
+    },
     storage: {
       // Note: API routes now use Redis directly via ioredis.
       // The cachedData mount is kept as a fallback for any legacy code.
       cachedData: { driver: 'fs', base: './.cache/nitro' }
-    },
-    routeRules: {
-      // Blocks are immutable - cache for 1 week (reduced from 1 year to save memory)
-      '/api/bch/block/**': { cache: { swr: true, maxAge: 60 * 60 * 24 * 7 } },
-      // Block hash by height is a permanent mapping - cache for 1 week
-      '/api/bch/blockhash/**': { cache: { swr: true, maxAge: 60 * 60 * 24 * 7 } },
-      // BCMR metadata rarely changes; cache for fast repeated lookups.
-      '/api/bcmr/token/**': { cache: { swr: true, maxAge: 60 * 60 } },
-      // Transaction data is immutable once confirmed - cache for 1 hour
-      '/api/bch/tx/**': { cache: { swr: true, maxAge: 60 * 60 } }
-    },
-    // Worker configuration: use 2 workers for memory/performance balance
-    // With 4GB total, each worker gets ~2GB which is sufficient
-    worker: true,
-    minWorkers: 2,
-    maxWorkers: 2,
-    // Memory optimization: close connections more aggressively
-    timing: false,
-    // Limit concurrent connections per worker to prevent overwhelming BCH node
-    experimental: {
-      wasm: true
     }
   }
 })

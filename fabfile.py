@@ -212,15 +212,8 @@ def clear_redis(c):
 
 @task
 def clear_cache(c):
-    """Clear server-side memory cache by restarting the app container"""
-    conn = c.config.run.env.get("conn") or get_connection()
-    print("🧹 Clearing server cache...")
-    with conn.cd(CONFIG["PATH"]):
-        # Touch a file to trigger Nuxt/Nitro cache clear on next start
-        conn.run(
-            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} exec -T app touch /app/.clear-cache || true"
-        )
-    print("✅ Server cache marked for clearing")
+    """Clear server-side memory cache (Go version has no persistent cache to clear)"""
+    print("🧹 Server cache cleared (Go API has no persistent in-memory cache)")
 
 
 @task

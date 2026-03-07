@@ -16,8 +16,8 @@ services:
 
   zmq-listener:
     build:
-      context: ./services/zmq-listener
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/zmq-listener/Dockerfile
     environment:
       BCH_ZMQ_HOST: ${BCH_ZMQ_HOST:-127.0.0.1}
       BCH_ZMQ_PORT: ${BCH_ZMQ_PORT:-28332}
@@ -27,49 +27,54 @@ services:
       BCH_RPC_URL: ${BCH_RPC_URL}
       BCH_RPC_USER: ${BCH_RPC_USER}
       BCH_RPC_PASS: ${BCH_RPC_PASS}
+      MAX_BLOCKS: 15
+      MAX_TRANSACTIONS: 20
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
     # Host networking for ZMQ (BCHN is on host)
     network_mode: "host"
+    command: ["/usr/local/bin/zmq-listener"]
 
   web:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        SITE_URL: ${SITE_URL:-https://bchexplorer.info}
-        NUXT_PUBLIC_SITE_URL: ${SITE_URL:-https://bchexplorer.info}
     network_mode: "host"
     environment:
-      # Nuxt/Nitro server
-      NITRO_HOST: "0.0.0.0"
-      NITRO_PORT: "8000"
+      # Go API server
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
 
-      # Increase Node.js heap size to prevent out-of-memory errors
-      NODE_OPTIONS: "--max-old-space-size=4096"
-
-      # Map our existing .env keys into Nuxt runtime config env vars.
-      NUXT_BCH_RPC_URL: ${BCH_RPC_URL}
-      NUXT_BCH_RPC_USER: ${BCH_RPC_USER}
-      NUXT_BCH_RPC_PASS: ${BCH_RPC_PASS}
-      NUXT_BCMR_BASE_URL: ${BCMR_BASE_URL:-https://bcmr.paytaca.com}
-      NUXT_FULCRUM_HOST: ${FULCRUM_HOST:-127.0.0.1}
-      NUXT_FULCRUM_PORT: ${FULCRUM_PORT:-60001}
-      NUXT_FULCRUM_TIMEOUT_MS: ${FULCRUM_TIMEOUT_MS:-30000}
-      NUXT_PUBLIC_CHAIN: ${CHAIN:-mainnet}
-      NUXT_PUBLIC_MAINNET_URL: ${MAINNET_URL}
-      NUXT_PUBLIC_CHIPNET_URL: ${CHIPNET_URL}
+      # BCH RPC
+      BCH_RPC_URL: ${BCH_RPC_URL}
+      BCH_RPC_USER: ${BCH_RPC_USER}
+      BCH_RPC_PASS: ${BCH_RPC_PASS}
+      
+      # Fulcrum (Electrum server)
+      FULCRUM_HOST: ${FULCRUM_HOST:-127.0.0.1}
+      FULCRUM_PORT: ${FULCRUM_PORT:-60001}
+      FULCRUM_TIMEOUT_MS: ${FULCRUM_TIMEOUT_MS:-30000}
+      
+      # BCMR
+      BCMR_BASE_URL: ${BCMR_BASE_URL:-https://bcmr.paytaca.com}
+      
+      # Chain info
+      PUBLIC_CHAIN: ${CHAIN:-mainnet}
+      MAINNET_URL: ${MAINNET_URL}
+      CHIPNET_URL: ${CHIPNET_URL}
       
       # Redis
       REDIS_URL: redis://127.0.0.1:6379/0
+      REDIS_PREFIX: bch
     depends_on:
       redis:
         condition: service_healthy
     env_file:
       - .env
     restart: unless-stopped
+    command: ["/usr/local/bin/api"]
 
 volumes:
   redis-data:

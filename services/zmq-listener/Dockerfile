@@ -1,29 +1,31 @@
-FROM node:20-alpine
+# Build stage for ZMQ Listener
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies and runtime libraries for zeromq
-RUN apk add --no-cache python3 make g++ linux-headers libzmq
+# Install dependencies
+RUN apk add --no-cache git zeromq-dev pkgconfig gcc musl-dev
 
-# Install dependencies (using install instead of ci since no lock file exists)
-COPY package.json ./
-RUN npm install
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy source and build
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN npm run build
+# Copy source code
+COPY internal/ internal/
+COPY cmd/zmq-listener/ cmd/zmq-listener/
 
-# Remove build dependencies only (keep runtime libraries)
-RUN apk del python3 make g++ linux-headers
+# Build ZMQ listener binary
+RUN CGO_ENABLED=1 go build -o /app/zmq-listener cmd/zmq-listener/main.go
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S zmq-listener -u 1001 && \
-    chown -R zmq-listener:nodejs /app
+# Production stage
+FROM alpine:latest
 
-USER zmq-listener
+WORKDIR /app
 
-EXPOSE 3000
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates zeromq
 
-CMD ["npm", "start"]
+# Copy binary
+COPY --from=builder /app/zmq-listener /usr/local/bin/zmq-listener
+
+CMD ["/usr/local/bin/zmq-listener"]
