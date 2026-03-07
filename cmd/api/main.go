@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -551,6 +552,12 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 	if address == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Address required"})
 		return
+	}
+
+	// URL-decode the address (handle URL-encoded colons)
+	decodedAddress, err := url.QueryUnescape(address)
+	if err == nil && decodedAddress != "" {
+		address = decodedAddress
 	}
 
 	// Validate address
