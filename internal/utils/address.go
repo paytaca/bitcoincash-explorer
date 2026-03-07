@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/gcash/bchd/chaincfg"
+	"github.com/gcash/bchutil"
 )
 
 // CashAddress prefixes
@@ -17,158 +20,84 @@ const (
 	RegtestPrefix = "bchreg"
 )
 
-// CashAddress charset
-const charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-
-// PolyMod computes the BCH checksum polynomial
-func PolyMod(v []byte) uint64 {
-	c := uint64(1)
-	for _, b := range v {
-		c0 := byte(c >> 35)
-		c = ((c & 0x07ffffffff) << 5) ^ uint64(b)
-		if c0&0x01 != 0 {
-			c ^= 0x98f2bc8e61
-		}
-		if c0&0x02 != 0 {
-			c ^= 0x79b76d99e2
-		}
-		if c0&0x04 != 0 {
-			c ^= 0xf33e5fb3c4
-		}
-		if c0&0x08 != 0 {
-			c ^= 0xae2eabe2a8
-		}
-		if c0&0x10 != 0 {
-			c ^= 0x1e4f43e470
-		}
-	}
-	return c ^ 1
-}
-
-// ExpandPrefix expands the human-readable part for checksum computation
-func ExpandPrefix(prefix string) []byte {
-	result := make([]byte, len(prefix)*2+1)
-	for i, c := range prefix {
-		result[i] = byte(c >> 5)
-		result[i+len(prefix)+1] = byte(c & 31)
-	}
-	result[len(prefix)] = 0
-	return result
-}
-
-// ConvertBits converts data from one bit width to another
-func ConvertBits(data []byte, fromBits, toBits uint, pad bool) ([]byte, error) {
-	acc := uint32(0)
-	bits := uint(0)
-	ret := make([]byte, 0, len(data)*int(fromBits)/int(toBits)+1)
-	maxv := uint32(1<<toBits - 1)
-	maxAcc := uint32(1<<(fromBits+toBits-1) - 1)
-
-	for _, b := range data {
-		acc = ((acc << fromBits) | uint32(b)) & maxAcc
-		bits += fromBits
-		for bits >= toBits {
-			bits -= toBits
-			ret = append(ret, byte((acc>>bits)&maxv))
-		}
-	}
-
-	if pad {
-		if bits > 0 {
-			ret = append(ret, byte((acc<<(toBits-bits))&maxv))
-		}
-	} else if bits >= fromBits || ((acc<<(toBits-bits))&maxv) != 0 {
-		return nil, errors.New("conversion requires padding but pad is false")
-	}
-
-	return ret, nil
-}
-
-// EncodeCashAddress encodes a version byte and hash160 to CashAddress
-func EncodeCashAddress(prefix string, version byte, hash160 []byte) string {
-	payload := append([]byte{version}, hash160...)
-	data, _ := ConvertBits(payload, 8, 5, true)
-
-	combined := make([]byte, 0, len(prefix)*2+1+len(data)+8)
-	combined = append(combined, ExpandPrefix(prefix)...)
-	combined = append(combined, data...)
-	combined = append(combined, 0, 0, 0, 0, 0, 0, 0, 0)
-
-	checksum := PolyMod(combined)
-
-	result := prefix + ":"
-	for i := 0; i < len(data); i++ {
-		result += string(charset[data[i]])
-	}
-	for i := 0; i < 8; i++ {
-		result += string(charset[(checksum>>(5*(7-i)))&31])
-	}
-
-	return result
-}
-
-// DecodeCashAddress decodes a CashAddress to version byte and hash
-func DecodeCashAddress(addr string) (prefix string, version byte, hash []byte, err error) {
+// ValidateCashAddress validates a CashAddress
+func ValidateCashAddress(addr string) (bool, string) {
 	addr = strings.ToLower(addr)
 
-	parts := strings.Split(addr, ":")
-	if len(parts) != 2 {
-		// Try to detect prefix
-		if strings.HasPrefix(addr, MainnetPrefix) {
-			prefix = MainnetPrefix
-			addr = addr[len(MainnetPrefix):]
-		} else if strings.HasPrefix(addr, TestnetPrefix) || strings.HasPrefix(addr, ChipnetPrefix) {
-			prefix = TestnetPrefix
-			addr = addr[len(TestnetPrefix):]
-		} else if strings.HasPrefix(addr, RegtestPrefix) {
-			prefix = RegtestPrefix
-			addr = addr[len(RegtestPrefix):]
-		} else {
-			return "", 0, nil, errors.New("invalid cashaddress: no prefix")
-		}
-	} else {
-		prefix = parts[0]
-		addr = parts[1]
-	}
-
-	data := make([]byte, len(addr))
-	for i, c := range addr {
-		idx := strings.IndexByte(charset, byte(c))
-		if idx < 0 {
-			return "", 0, nil, fmt.Errorf("invalid character in address: %c", c)
-		}
-		data[i] = byte(idx)
-	}
-
-	if len(data) < 8 {
-		return "", 0, nil, errors.New("address too short")
-	}
-
-	payload := data[:len(data)-8]
-
-	// Verify checksum
-	combined := make([]byte, 0, len(prefix)*2+1+len(data))
-	combined = append(combined, ExpandPrefix(prefix)...)
-	combined = append(combined, data...)
-
-	if PolyMod(combined) != 0 {
-		return "", 0, nil, errors.New("invalid checksum")
-	}
-
-	// Convert 5-bit groups to 8-bit bytes
-	decoded, err := ConvertBits(payload, 5, 8, false)
+	// Decode using bchutil with chaincfg params
+	decodedAddr, err := bchutil.DecodeAddress(addr, &chaincfg.MainNetParams)
 	if err != nil {
-		return "", 0, nil, err
+		// Try testnet/chipnet
+		decodedAddr, err = bchutil.DecodeAddress(addr, &chaincfg.TestNet3Params)
+		if err != nil {
+			// Try regtest
+			decodedAddr, err = bchutil.DecodeAddress(addr, &chaincfg.RegressionNetParams)
+			if err != nil {
+				return false, ""
+			}
+		}
 	}
 
-	if len(decoded) < 1 {
-		return "", 0, nil, errors.New("decoded data too short")
+	// Determine address type
+	switch decodedAddr.(type) {
+	case *bchutil.AddressPubKeyHash:
+		return true, "P2PKH"
+	case *bchutil.AddressScriptHash:
+		return true, "P2SH"
+	default:
+		return true, "Unknown"
+	}
+}
+
+// AddressToScripthash converts a CashAddress to scripthash for Fulcrum
+func AddressToScripthash(addr string) (string, error) {
+	addr = strings.ToLower(addr)
+
+	// Try mainnet first
+	decodedAddr, err := bchutil.DecodeAddress(addr, &chaincfg.MainNetParams)
+	if err != nil {
+		// Try testnet/chipnet
+		decodedAddr, err = bchutil.DecodeAddress(addr, &chaincfg.TestNet3Params)
+		if err != nil {
+			// Try regtest
+			decodedAddr, err = bchutil.DecodeAddress(addr, &chaincfg.RegressionNetParams)
+			if err != nil {
+				return "", fmt.Errorf("failed to decode address: %w", err)
+			}
+		}
 	}
 
-	version = decoded[0]
-	hash = decoded[1:]
+	// Get the script bytes
+	script := decodedAddr.ScriptAddress()
 
-	return prefix, version, hash, nil
+	// Build the scriptPubKey
+	var scriptPubKey []byte
+	switch decodedAddr.(type) {
+	case *bchutil.AddressPubKeyHash:
+		// P2PKH: OP_DUP OP_HASH160 <20-byte hash> OP_EQUALVERIFY OP_CHECKSIG
+		scriptPubKey = []byte{0x76, 0xa9, 0x14}
+		scriptPubKey = append(scriptPubKey, script...)
+		scriptPubKey = append(scriptPubKey, 0x88, 0xac)
+	case *bchutil.AddressScriptHash:
+		// P2SH: OP_HASH160 <20-byte hash> OP_EQUAL
+		scriptPubKey = []byte{0xa9, 0x14}
+		scriptPubKey = append(scriptPubKey, script...)
+		scriptPubKey = append(scriptPubKey, 0x87)
+	default:
+		return "", fmt.Errorf("unsupported address type")
+	}
+
+	// Double SHA256
+	h1 := sha256.Sum256(scriptPubKey)
+	h2 := sha256.Sum256(h1[:])
+
+	// Reverse byte order (Fulcrum expects reversed hash)
+	scripthash := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		scripthash[i] = h2[31-i]
+	}
+
+	return hex.EncodeToString(scripthash), nil
 }
 
 // GetAddressType returns the address type from version byte
@@ -185,61 +114,6 @@ func GetAddressType(version byte) string {
 	default:
 		return "Unknown"
 	}
-}
-
-// ValidateCashAddress validates a CashAddress
-func ValidateCashAddress(addr string) (bool, string) {
-	_, version, hash, err := DecodeCashAddress(addr)
-	if err != nil {
-		return false, ""
-	}
-
-	expectedLen := 20
-	if version >= 2 {
-		expectedLen = 32
-	}
-
-	if len(hash) != expectedLen {
-		return false, ""
-	}
-
-	return true, GetAddressType(version)
-}
-
-// AddressToScripthash converts a CashAddress to scripthash for Fulcrum
-func AddressToScripthash(addr string) (string, error) {
-	_, version, hash, err := DecodeCashAddress(addr)
-	if err != nil {
-		return "", err
-	}
-
-	var script []byte
-
-	if version == 0 || version == 2 || version == 3 {
-		// P2PKH: OP_DUP OP_HASH160 <20-byte hash> OP_EQUALVERIFY OP_CHECKSIG
-		script = []byte{0x76, 0xa9, 0x14}
-		script = append(script, hash...)
-		script = append(script, 0x88, 0xac)
-	} else if version == 1 || version == 4 || version == 5 {
-		// P2SH: OP_HASH160 <20-byte hash> OP_EQUAL
-		script = []byte{0xa9, 0x14}
-		script = append(script, hash...)
-		script = append(script, 0x87)
-	} else {
-		return "", fmt.Errorf("unsupported address version: %d", version)
-	}
-
-	// Double SHA256
-	h1 := sha256.Sum256(script)
-	h2 := sha256.Sum256(h1[:])
-
-	// Reverse byte order
-	scripthash := make([]byte, 32)
-	for i := 0; i < 32; i++ {
-		scripthash[i] = h2[31-i]
-	}
-
-	return hex.EncodeToString(scripthash), nil
 }
 
 // ReverseHex reverses a hex string byte order
