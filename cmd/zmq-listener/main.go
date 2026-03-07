@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/pebbe/zmq4"
-	
+
 	"bchexplorer/internal/bchrpc"
 	"bchexplorer/internal/redis"
 	"bchexplorer/internal/types"
@@ -22,24 +22,24 @@ import (
 
 // Config holds service configuration
 type Config struct {
-	ZMQHost   string
-	ZMQPort   int
-	RedisURL  string
+	ZMQHost     string
+	ZMQPort     int
+	RedisURL    string
 	RedisPrefix string
-	BCHRPCURL string
-	BCHRPCUser string
-	BCHRPCPass string
-	MaxBlocks int
-	MaxTxs    int
+	BCHRPCURL   string
+	BCHRPCUser  string
+	BCHRPCPass  string
+	MaxBlocks   int
+	MaxTxs      int
 }
 
 // Service represents the ZMQ listener service
 type Service struct {
-	config   Config
-	zmqCtx   *zmq4.Context
-	zmqSocket *zmq4.Socket
-	redis    *redis.Client
-	rpc      *bchrpc.Client
+	config        Config
+	zmqCtx        *zmq4.Context
+	zmqSocket     *zmq4.Socket
+	redis         *redis.Client
+	rpc           *bchrpc.Client
 	lastBlockHash string
 }
 
@@ -85,7 +85,7 @@ func NewService(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
-	
+
 	// Initialize BCH RPC client
 	var rpcClient *bchrpc.Client
 	if cfg.BCHRPCURL != "" {
@@ -97,7 +97,7 @@ func NewService(cfg Config) (*Service, error) {
 			MaxConns: 10,
 		})
 	}
-	
+
 	return &Service{
 		config: cfg,
 		redis:  redisClient,
@@ -113,14 +113,14 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create ZMQ context: %w", err)
 	}
 	s.zmqCtx = zctx
-	
+
 	// Connect to ZMQ
 	if err := s.connectZMQ(); err != nil {
 		return err
 	}
-	
+
 	log.Println("ZMQ listener started")
-	
+
 	// Process messages
 	for {
 		select {
@@ -128,11 +128,11 @@ func (s *Service) Start(ctx context.Context) error {
 			return nil
 		default:
 		}
-		
+
 		// Poll for messages with timeout
 		if err := s.processMessage(); err != nil {
 			log.Printf("Error processing message: %v", err)
-			
+
 			// Try to reconnect
 			s.zmqSocket.Close()
 			time.Sleep(time.Second)
@@ -150,20 +150,20 @@ func (s *Service) connectZMQ() error {
 	if err != nil {
 		return fmt.Errorf("failed to create ZMQ socket: %w", err)
 	}
-	
+
 	addr := fmt.Sprintf("tcp://%s:%d", s.config.ZMQHost, s.config.ZMQPort)
 	if err := socket.Connect(addr); err != nil {
 		socket.Close()
 		return fmt.Errorf("failed to connect to ZMQ: %w", err)
 	}
-	
+
 	// Subscribe to topics
 	socket.SetSubscribe("rawblock")
 	socket.SetSubscribe("rawtx")
-	
+
 	s.zmqSocket = socket
 	log.Printf("Connected to ZMQ at %s", addr)
-	
+
 	return nil
 }
 
@@ -171,7 +171,7 @@ func (s *Service) connectZMQ() error {
 func (s *Service) processMessage() error {
 	// Receive message with timeout
 	s.zmqSocket.SetRcvtimeo(1 * time.Second)
-	
+
 	frames, err := s.zmqSocket.RecvMessage(0)
 	if err != nil {
 		if err.Error() == "resource temporarily unavailable" {
@@ -179,21 +179,21 @@ func (s *Service) processMessage() error {
 		}
 		return err
 	}
-	
+
 	if len(frames) < 2 {
 		return nil
 	}
-	
+
 	topic := frames[0]
 	data := []byte(frames[1])
-	
+
 	switch topic {
 	case "rawblock":
 		return s.handleBlock(data)
 	case "rawtx":
 		return s.handleTransaction(data)
 	}
-	
+
 	return nil
 }
 
@@ -203,19 +203,19 @@ func (s *Service) handleBlock(rawBlock []byte) error {
 	if len(rawBlock) < 80 {
 		return fmt.Errorf("block too short")
 	}
-	
+
 	// Block hash is double SHA256 of header
 	header := rawBlock[:80]
 	hash := utils.DoubleSha256(header)
-	
+
 	// Reverse for display
 	hashStr := ""
 	for i := 31; i >= 0; i-- {
 		hashStr += fmt.Sprintf("%02x", hash[i])
 	}
-	
+
 	log.Printf("Received block: %s", hashStr)
-	
+
 	// Get previous block hash
 	prevHash := ""
 	for i := 3; i >= 0; i-- {
@@ -223,37 +223,37 @@ func (s *Service) handleBlock(rawBlock []byte) error {
 			prevHash += fmt.Sprintf("%02x", header[4+i*4+j])
 		}
 	}
-	
+
 	// Detect reorg
 	if s.lastBlockHash != "" && prevHash != s.lastBlockHash {
 		log.Printf("Reorg detected! Expected %s, got %s", s.lastBlockHash, prevHash)
 		// Handle reorg - this would need to walk back the chain
 	}
-	
+
 	s.lastBlockHash = hashStr
-	
+
 	// Fetch full block details from RPC if available
 	var block *types.Block
 	if s.rpc != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		
+
 		blockData, err := s.rpc.GetBlock(ctx, hashStr, 2)
 		if err == nil && blockData != nil {
 			block = s.parseBlock(blockData)
 		}
 	}
-	
+
 	if block == nil {
 		// Parse minimal info from raw block
 		timestamp := binary.LittleEndian.Uint32(header[68:72])
 		nonce := binary.LittleEndian.Uint32(header[76:80])
-		
+
 		// Get transaction count from rest of block
 		offset := 80
 		txCount, bytesRead, _ := utils.ParseVarInt(rawBlock, offset)
 		offset += bytesRead
-		
+
 		block = &types.Block{
 			Hash:    hashStr,
 			Time:    int64(timestamp),
@@ -262,25 +262,25 @@ func (s *Service) handleBlock(rawBlock []byte) error {
 			Nonce:   int64(nonce),
 		}
 	}
-	
+
 	// Store in Redis
 	ctx := context.Background()
 	if err := s.redis.PushBlock(ctx, block); err != nil {
 		log.Printf("Failed to store block: %v", err)
 	}
-	
+
 	// Process transactions in block
 	if s.rpc != nil {
 		s.processBlockTransactions(ctx, block)
 	}
-	
+
 	return nil
 }
 
 // parseBlock parses block data from RPC
 func (s *Service) parseBlock(data map[string]interface{}) *types.Block {
 	block := &types.Block{}
-	
+
 	if hash, ok := data["hash"].(string); ok {
 		block.Hash = hash
 	}
@@ -328,18 +328,18 @@ func (s *Service) parseBlock(data map[string]interface{}) *types.Block {
 			}
 		}
 	}
-	
+
 	// Extract miner from coinbase
 	if len(block.Tx) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		
+
 		txData, _ := s.rpc.GetRawTransaction(ctx, block.Tx[0], true)
 		if txData != nil {
 			block.Miner = s.extractMiner(txData)
 		}
 	}
-	
+
 	return block
 }
 
@@ -364,7 +364,7 @@ func (s *Service) processBlockTransactions(ctx context.Context, block *types.Blo
 	for _, txid := range block.Tx {
 		// Check if in mempool
 		isInMempool, _ := s.redis.IsInMempool(ctx, txid)
-		
+
 		if isInMempool {
 			// Mark as confirmed
 			s.redis.MarkTransactionConfirmed(ctx, txid, block.Height)
@@ -376,11 +376,15 @@ func (s *Service) processBlockTransactions(ctx context.Context, block *types.Blo
 			if err != nil {
 				continue
 			}
-			
+
 			tx := s.parseTransaction(txData)
 			tx.Status = "confirmed"
 			tx.BlockHeight = block.Height
-			
+			// Use block time for confirmed transactions
+			if tx.Time == 0 {
+				tx.Time = block.Time
+			}
+
 			s.redis.PushTransaction(ctx, tx)
 		}
 	}
@@ -390,48 +394,56 @@ func (s *Service) processBlockTransactions(ctx context.Context, block *types.Blo
 func (s *Service) handleTransaction(rawTx []byte) error {
 	// Compute txid
 	txid := utils.ComputeTxid(rawTx)
-	
-	// Parse transaction
+
+	// Default time is now
+	now := time.Now().Unix()
+
+	// Parse transaction from raw bytes first
 	tx := &types.Transaction{
 		Txid:   txid,
 		Status: "mempool",
-		Time:   time.Now().Unix(),
+		Time:   now,
 		Size:   len(rawTx),
 	}
-	
+
 	// Fetch full details from RPC
 	if s.rpc != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		
+
 		txData, err := s.rpc.GetRawTransaction(ctx, txid, true)
 		if err == nil && txData != nil {
-			tx = s.parseTransaction(txData)
-			tx.Status = "mempool"
+			parsedTx := s.parseTransaction(txData)
+			// Preserve time if RPC didn't return one (mempool txs might not have time)
+			if parsedTx.Time == 0 {
+				parsedTx.Time = now
+			}
+			parsedTx.Status = "mempool"
+			tx = parsedTx
 		}
 	}
-	
+
 	// Store in Redis
 	ctx := context.Background()
 	if err := s.redis.PushTransaction(ctx, tx); err != nil {
 		log.Printf("Failed to store transaction: %v", err)
 	}
-	
+
 	if err := s.redis.AddToMempool(ctx, txid); err != nil {
 		log.Printf("Failed to add to mempool: %v", err)
 	}
-	
+
 	if err := s.redis.StoreFullTransaction(ctx, txid, tx); err != nil {
 		log.Printf("Failed to store full transaction: %v", err)
 	}
-	
+
 	return nil
 }
 
 // parseTransaction parses transaction data from RPC
 func (s *Service) parseTransaction(data map[string]interface{}) *types.Transaction {
 	tx := &types.Transaction{}
-	
+
 	if txid, ok := data["txid"].(string); ok {
 		tx.Txid = txid
 	}
@@ -447,7 +459,7 @@ func (s *Service) parseTransaction(data map[string]interface{}) *types.Transacti
 	if confs, ok := data["confirmations"].(float64); ok {
 		tx.Confirmations = int64(confs)
 	}
-	
+
 	// Parse inputs
 	if vin, ok := data["vin"].([]interface{}); ok {
 		tx.Inputs = make([]types.TransactionInput, 0, len(vin))
@@ -470,7 +482,7 @@ func (s *Service) parseTransaction(data map[string]interface{}) *types.Transacti
 			}
 		}
 	}
-	
+
 	// Parse outputs and calculate amount
 	if vout, ok := data["vout"].([]interface{}); ok {
 		tx.Outputs = make([]types.TransactionOutput, 0, len(vout))
@@ -495,7 +507,7 @@ func (s *Service) parseTransaction(data map[string]interface{}) *types.Transacti
 			}
 		}
 	}
-	
+
 	return tx
 }
 
@@ -517,26 +529,26 @@ func (s *Service) Close() {
 
 func main() {
 	cfg := loadConfig()
-	
+
 	service, err := NewService(cfg)
 	if err != nil {
 		log.Fatalf("Failed to create service: %v", err)
 	}
 	defer service.Close()
-	
+
 	// Setup signal handling
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	go func() {
 		<-sigCh
 		log.Println("Shutting down...")
 		cancel()
 	}()
-	
+
 	// Start service
 	if err := service.Start(ctx); err != nil {
 		log.Fatalf("Service error: %v", err)

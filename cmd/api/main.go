@@ -428,15 +428,18 @@ func (s *Server) handleRecentTransactions(c *gin.Context) {
 	if s.rpc != nil {
 		mempool, err := s.rpc.GetRawMempool(ctx, true)
 		if err == nil {
+			now := time.Now().Unix()
 			txs = make([]*types.Transaction, 0)
 			for txid, info := range mempool {
 				if infoMap, ok := info.(map[string]interface{}); ok {
 					tx := &types.Transaction{
 						Txid:   txid,
 						Status: "mempool",
+						Time:   now, // Default to now
 					}
-					if time, ok := infoMap["time"].(float64); ok {
-						tx.Time = int64(time)
+					// Override with RPC time if available
+					if txTime, ok := infoMap["time"].(float64); ok && txTime > 0 {
+						tx.Time = int64(txTime)
 					}
 					if size, ok := infoMap["size"].(float64); ok {
 						tx.Size = int(size)
