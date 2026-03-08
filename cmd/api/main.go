@@ -790,9 +790,14 @@ func (s *Server) handleTxOut(c *gin.Context) {
 
 	// To determine if spent, we'd need to query all inputs
 	// This is expensive, so we'll return unconfirmed
+	status := "unspent"
+	if spent {
+		status = "spent"
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"txid":         txid,
 		"vout":         vout,
+		"status":       status,
 		"spent":        spent,
 		"spender":      spender,
 		"scriptPubKey": output["scriptPubKey"],
