@@ -61,10 +61,6 @@
                 <td class="v mono">{{ formatAbsoluteTime(data?.node.bestBlockTime) }}</td>
               </tr>
               <tr>
-                <td class="k">IBD</td>
-                <td class="v mono">{{ data?.node.initialblockdownload === true ? 'true' : data?.node.initialblockdownload === false ? 'false' : '—' }}</td>
-              </tr>
-              <tr>
                 <td class="k">Verification progress</td>
                 <td class="v mono">{{ formatPercent(data?.node.verificationprogress) }}</td>
               </tr>
@@ -73,7 +69,7 @@
                 <td class="v mono">{{ formatMaybeNumber(data?.node.connections) }}</td>
               </tr>
               <tr>
-                <td class="k">Subversion</td>
+                <td class="k">Version</td>
                 <td class="v mono">{{ data?.node.subversion || '—' }}</td>
               </tr>
               <tr>
@@ -115,12 +111,8 @@
                 <td class="v mono">{{ formatAbsoluteTime(data?.fulcrum.headerTime) }}</td>
               </tr>
               <tr>
-                <td class="k">Server version</td>
-                <td class="v mono">{{ formatJsonOneLine(data?.fulcrum.version) }}</td>
-              </tr>
-              <tr>
-                <td class="k">Banner</td>
-                <td class="v mono">{{ formatJsonOneLine(data?.fulcrum.banner) }}</td>
+                <td class="k">Version</td>
+                <td class="v mono">{{ formatBanner(data?.fulcrum.banner) }}</td>
               </tr>
               <tr>
                 <td class="k">RPC latency</td>
@@ -147,10 +139,8 @@ type StatusResponse = {
     bestblockhash?: string
     difficulty?: number
     verificationprogress?: number
-    initialblockdownload?: boolean
     mediantime?: number
     warnings?: string
-    version?: number
     subversion?: string
     connections?: number
     bestBlockTime?: number
@@ -161,7 +151,6 @@ type StatusResponse = {
     latencyMs?: number
     host?: string
     port?: number
-    version?: unknown
     banner?: unknown
     height?: number
     headerTime?: number
@@ -216,6 +205,13 @@ function formatJsonOneLine(v: unknown) {
   } catch {
     return String(v)
   }
+}
+
+function formatBanner(banner: unknown): string {
+  if (typeof banner !== 'string') return '—'
+  // Extract version from "Connected to a Fulcrum X.Y.Z server" format
+  const match = banner.match(/Connected to a (.+?) server/)
+  return match ? match[1] : banner
 }
 </script>
 
