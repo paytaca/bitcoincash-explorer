@@ -42,6 +42,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        CHAIN: ${CHAIN:-mainnet}
+        MAINNET_URL: ${MAINNET_URL}
+        CHIPNET_URL: ${CHIPNET_URL}
+        NUXT_PUBLIC_SITE_URL: ${SITE_URL:-https://bchexplorer.info}
     network_mode: "host"
     environment:
       # Go API server
@@ -62,7 +67,7 @@ services:
       BCMR_BASE_URL: ${BCMR_BASE_URL:-https://bcmr.paytaca.com}
       
       # Chain info
-      PUBLIC_CHAIN: ${CHAIN:-mainnet}
+      CHAIN: ${CHAIN:-mainnet}
       MAINNET_URL: ${MAINNET_URL}
       CHIPNET_URL: ${CHIPNET_URL}
       

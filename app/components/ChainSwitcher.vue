@@ -38,15 +38,16 @@
 
 <script setup lang="ts">
 const config = useRuntimeConfig()
-const chain = config.public.chain
-const mainnetUrl = config.public.mainnetUrl
-const chipnetUrl = config.public.chipnetUrl
+
+const chain = computed(() => config.public.chain as string)
+const mainnetUrl = computed(() => config.public.mainnetUrl as string)
+const chipnetUrl = computed(() => config.public.chipnetUrl as string)
 
 const isOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 
 const chainLabel = computed(() => {
-  switch (chain) {
+  switch (chain.value) {
     case 'chipnet': return 'Chipnet'
     case 'testnet': return 'Testnet'
     case 'regtest': return 'Regtest'
@@ -55,7 +56,7 @@ const chainLabel = computed(() => {
 })
 
 const chainClass = computed(() => {
-  switch (chain) {
+  switch (chain.value) {
     case 'chipnet': return 'isChipnet'
     case 'testnet': return 'isTestnet'
     case 'regtest': return 'isRegtest'
@@ -64,8 +65,8 @@ const chainClass = computed(() => {
 })
 
 const options = computed(() => [
-  { chain: 'mainnet', label: 'Mainnet', class: 'isMainnet', url: mainnetUrl },
-  { chain: 'chipnet', label: 'Chipnet', class: 'isChipnet', url: chipnetUrl }
+  { chain: 'mainnet', label: 'Mainnet', class: 'isMainnet', url: mainnetUrl.value },
+  { chain: 'chipnet', label: 'Chipnet', class: 'isChipnet', url: chipnetUrl.value }
 ])
 
 function toggle() {

@@ -53,6 +53,13 @@ clean:
 test:
 	$(GOTEST) -v ./...
 
+# Frontend build commands
+build-frontend-mainnet:
+	set -a && source .env.mainnet && set +a && npm run generate
+
+build-frontend-chipnet:
+	set -a && source .env.chipnet && set +a && npm run generate
+
 # Docker commands
 docker-build:
 	docker-compose build
@@ -85,16 +92,18 @@ sec:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  make build        - Build both binaries"
-	@echo "  make build-api    - Build API server only"
-	@echo "  make build-zmq    - Build ZMQ listener only"
-	@echo "  make run-api      - Run API server"
-	@echo "  make run-zmq      - Run ZMQ listener"
-	@echo "  make test         - Run tests"
-	@echo "  make clean        - Clean build artifacts"
-	@echo "  make docker-build - Build Docker images"
-	@echo "  make docker-up    - Start Docker containers"
-	@echo "  make docker-down  - Stop Docker containers"
-	@echo "  make fmt          - Format Go code"
-	@echo "  make lint         - Run linter"
-	@echo "  make deps         - Download dependencies"
+	@echo "  make build                  - Build both binaries"
+	@echo "  make build-api              - Build API server only"
+	@echo "  make build-zmq              - Build ZMQ listener only"
+	@echo "  make build-frontend-mainnet - Build frontend for mainnet"
+	@echo "  make build-frontend-chipnet - Build frontend for chipnet"
+	@echo "  make run-api                - Run API server"
+	@echo "  make run-zmq                - Run ZMQ listener"
+	@echo "  make test                   - Run tests"
+	@echo "  make clean                  - Clean build artifacts"
+	@echo "  make docker-build           - Build Docker images"
+	@echo "  make docker-up              - Start Docker containers"
+	@echo "  make docker-down            - Stop Docker containers"
+	@echo "  make fmt                    - Format Go code"
+	@echo "  make lint                   - Run linter"
+	@echo "  make deps                   - Download dependencies"

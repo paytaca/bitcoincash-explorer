@@ -12,9 +12,18 @@ COPY app/ ./app/
 COPY public/ ./public/
 COPY nuxt.config.ts tsconfig.json ./
 
-# Build static site
-ENV NUXT_PUBLIC_SITE_URL=https://bchexplorer.info
-ENV NUXT_PUBLIC_CHAIN=mainnet
+# Accept build arguments
+ARG CHAIN=mainnet
+ARG MAINNET_URL=
+ARG CHIPNET_URL=
+ARG NUXT_PUBLIC_SITE_URL=https://bchexplorer.info
+
+# Set as environment variables for the build
+ENV CHAIN=${CHAIN}
+ENV MAINNET_URL=${MAINNET_URL}
+ENV CHIPNET_URL=${CHIPNET_URL}
+ENV NUXT_PUBLIC_SITE_URL=${NUXT_PUBLIC_SITE_URL}
+
 RUN npm run generate
 
 # Build stage for API

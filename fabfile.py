@@ -228,7 +228,7 @@ def deploy(c):
     print("🚀 Starting deployment...")
     sync(c)
     print("📦 Building Docker image...")
-    build(c, no_cache=True)
+    build(c, no_cache=False)
     print("🛑 Stopping old containers...")
     down(c)
     print("🎬 Starting new containers...")

@@ -121,7 +121,7 @@ func loadConfig() Config {
 		FulcrumPort:    getEnvInt("FULCRUM_PORT", 60001),
 		FulcrumTimeout: getEnvInt("FULCRUM_TIMEOUT_MS", 30000),
 		BCMRBaseURL:    getEnv("BCMR_BASE_URL", ""),
-		PublicChain:    getEnv("PUBLIC_CHAIN", "mainnet"),
+		PublicChain:    getEnv("CHAIN", "mainnet"),
 		MainnetURL:     getEnv("MAINNET_URL", ""),
 		ChipnetURL:     getEnv("CHIPNET_URL", ""),
 	}

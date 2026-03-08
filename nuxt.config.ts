@@ -1,5 +1,5 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
-const env = ((globalThis as any).process?.env || {}) as Record<string, string | undefined>
+const env = process.env as Record<string, string | undefined>
 const siteUrl = (env.NUXT_PUBLIC_SITE_URL || env.SITE_URL || 'https://bchexplorer.info').replace(/\/$/, '')
 
 export default defineNuxtConfig({
@@ -65,9 +65,9 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      chain: 'mainnet',
-      mainnetUrl: '',
-      chipnetUrl: ''
+      chain: (env.CHAIN || 'mainnet') as string,
+      mainnetUrl: (env.MAINNET_URL || '') as string,
+      chipnetUrl: (env.CHIPNET_URL || '') as string
     }
   },
 
