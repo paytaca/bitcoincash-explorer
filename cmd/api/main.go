@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -922,57 +925,258 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 	}
 
 	// Get pagination params
-	cursor := c.Query("cursor")
+	cursorStr := c.Query("cursor")
 	limitStr := c.DefaultQuery("limit", "20")
 	limit, err := strconv.Atoi(limitStr)
 	if err != nil || limit < 1 || limit > 100 {
 		limit = 20
 	}
 
-	// Check cache
-	cacheKey := fmt.Sprintf("addr:%s:%s:%d", address, cursor, limit)
+	windowStr := c.DefaultQuery("window", "1000")
+	window, err := strconv.Atoi(windowStr)
+	if err != nil || window < 100 || window > 50000 {
+		window = 1000
+	}
+
+	cursor := 0
+	if cursorStr != "" {
+		if parsed, err := strconv.Atoi(cursorStr); err == nil && parsed >= 0 {
+			cursor = parsed
+		}
+	}
+
+	cacheKey := fmt.Sprintf("addr:%s:%d:%d:%d", address, cursor, limit, window)
 	var result map[string]interface{}
 	if found, _ := s.redis.CacheGet(ctx, cacheKey, &result); found {
 		c.JSON(http.StatusOK, result)
 		return
 	}
 
-	// Get history from Fulcrum
-	history, err := s.fulcrum.GetHistory(ctx, scripthash)
+	// Get current best height for confirmation counts
+	var tipHeight int64
+	var tip map[string]interface{}
+	if err := s.fulcrum.Request(ctx, "blockchain.headers.subscribe", []interface{}{}, &tip); err == nil {
+		tipHeight = toInt64(tip["height"])
+	}
+
+	// Get confirmed history from Fulcrum (scripthash-first, address fallback)
+	history, err := fetchAddressHistory(ctx, s.fulcrum, scripthash, address)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to get transactions"})
 		return
 	}
 
-	// Apply pagination
-	startIdx := 0
-	if cursor != "" {
-		// Parse cursor as index
-		if idx, err := strconv.Atoi(cursor); err == nil {
-			startIdx = idx
+	// Convert/normalize history entries and sort newest first
+	type historyItem struct {
+		txid   string
+		height int64
+	}
+
+	confirmedHistory := make([]historyItem, 0, len(history))
+	for _, row := range history {
+		txid := strings.ToLower(toString(row["tx_hash"]))
+		if txid == "" {
+			txid = strings.ToLower(toString(row["txid"]))
 		}
+		if txid == "" {
+			continue
+		}
+		confirmedHistory = append(confirmedHistory, historyItem{txid: txid, height: toInt64(row["height"])})
+	}
+
+	sort.SliceStable(confirmedHistory, func(i, j int) bool {
+		if confirmedHistory[i].height == confirmedHistory[j].height {
+			return confirmedHistory[i].txid > confirmedHistory[j].txid
+		}
+		return confirmedHistory[i].height > confirmedHistory[j].height
+	})
+
+	startIdx := cursor
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if startIdx > len(confirmedHistory) {
+		startIdx = len(confirmedHistory)
 	}
 
 	endIdx := startIdx + limit
-	if endIdx > len(history) {
-		endIdx = len(history)
+	if endIdx > len(confirmedHistory) {
+		endIdx = len(confirmedHistory)
 	}
 
-	hasMore := endIdx < len(history)
-	nextCursor := ""
+	hasMore := endIdx < len(confirmedHistory)
+	var nextCursor interface{}
 	if hasMore {
-		nextCursor = strconv.Itoa(endIdx)
+		nextCursor = endIdx
 	}
 
-	// Get balance
-	balance, _ := s.fulcrum.GetBalance(ctx, scripthash)
+	candidateAddrs := normalizeAddressCandidates(address)
+	seenTx := make(map[string]struct{})
+	items := make([]map[string]interface{}, 0, limit)
 
-	// Build response
+	// Newest page includes mempool txs for compatibility.
+	if cursor == 0 {
+		mempool, memErr := fetchAddressMempool(ctx, s.fulcrum, scripthash, address)
+		if memErr == nil {
+			for _, row := range mempool {
+				txid := strings.ToLower(toString(row["tx_hash"]))
+				if txid == "" {
+					txid = strings.ToLower(toString(row["txid"]))
+				}
+				if txid == "" || len(items) >= limit {
+					continue
+				}
+				if _, exists := seenTx[txid]; exists {
+					continue
+				}
+				items = append(items, fetchAddressTxItem(ctx, s, txid, "mempool", 0, tipHeight, candidateAddrs))
+				seenTx[txid] = struct{}{}
+			}
+		}
+	}
+
+	for i := startIdx; i < endIdx && len(items) < limit; i++ {
+		e := confirmedHistory[i]
+		if _, exists := seenTx[e.txid]; exists {
+			continue
+		}
+
+		item := fetchAddressTxItem(ctx, s, e.txid, "confirmed", e.height, tipHeight, candidateAddrs)
+		if item["blockHeight"] == nil {
+			item["blockHeight"] = e.height
+		}
+		if toString(item["txid"]) == "" {
+			item["txid"] = e.txid
+		}
+		items = append(items, item)
+		seenTx[e.txid] = struct{}{}
+	}
+
+	// Compatibility payload with older shape
+	transactions := make([]gin.H, 0, len(confirmedHistory))
+	for _, e := range confirmedHistory {
+		transactions = append(transactions, gin.H{"tx_hash": e.txid, "height": e.height})
+	}
+
+	// Get balances
+	balance, err := fetchAddressBalance(ctx, s.fulcrum, scripthash, address)
+	if err != nil {
+		balance = map[string]interface{}{"confirmed": int64(0), "unconfirmed": int64(0)}
+	}
+
+	// Optional token balances from tokenized UTXOs
+	type tokenAgg struct {
+		category   string
+		fungible   *big.Int
+		nftNone    int
+		nftMutable int
+		nftMinting int
+		utxoCount  int
+	}
+
+	tokenMap := make(map[string]*tokenAgg)
+	var tokenUTXOs []map[string]interface{}
+	if err := fetchAddressTokenUtxos(ctx, s.fulcrum, scripthash, address, &tokenUTXOs); err == nil {
+		for _, u := range tokenUTXOs {
+			td, ok := u["token_data"].(map[string]interface{})
+			if !ok {
+				td, ok = u["token"].(map[string]interface{})
+				if !ok {
+					continue
+				}
+			}
+
+			cat, ok := td["category"].(string)
+			if !ok || cat == "" {
+				continue
+			}
+
+			agg, ok := tokenMap[cat]
+			if !ok {
+				agg = &tokenAgg{category: cat, fungible: big.NewInt(0)}
+				tokenMap[cat] = agg
+			}
+
+			agg.utxoCount++
+
+			if amtRaw, ok := td["amount"].(string); ok {
+				if amt, parsed := new(big.Int).SetString(amtRaw, 10); parsed {
+					agg.fungible.Add(agg.fungible, amt)
+				}
+			} else if amtRawNum, ok := td["amount"].(float64); ok {
+				agg.fungible.Add(agg.fungible, big.NewInt(int64(amtRawNum)))
+			} else if amtRawInt, ok := td["amount"].(int64); ok {
+				agg.fungible.Add(agg.fungible, big.NewInt(amtRawInt))
+			} else if amtRawInt, ok := td["amount"].(int); ok {
+				agg.fungible.Add(agg.fungible, big.NewInt(int64(amtRawInt)))
+			}
+
+			if nft, ok := td["nft"].(map[string]interface{}); ok {
+				switch nft["capability"] {
+				case "none":
+					agg.nftNone++
+				case "mutable":
+					agg.nftMutable++
+				case "minting":
+					agg.nftMinting++
+				}
+			}
+		}
+	}
+
+	tokenBuckets := make([]*tokenAgg, 0, len(tokenMap))
+	for _, b := range tokenMap {
+		tokenBuckets = append(tokenBuckets, b)
+	}
+
+	sort.SliceStable(tokenBuckets, func(i, j int) bool {
+		if cmp := tokenBuckets[i].fungible.Cmp(tokenBuckets[j].fungible); cmp != 0 {
+			return cmp > 0
+		}
+		left := tokenBuckets[i].nftNone + tokenBuckets[i].nftMutable + tokenBuckets[i].nftMinting
+		right := tokenBuckets[j].nftNone + tokenBuckets[j].nftMutable + tokenBuckets[j].nftMinting
+		return left > right
+	})
+
+	tokenBalances := make([]map[string]interface{}, 0, len(tokenBuckets))
+	for _, b := range tokenBuckets {
+		nftCount := b.nftNone + b.nftMutable + b.nftMinting
+		tokenBalances = append(tokenBalances, map[string]interface{}{
+			"category":       b.category,
+			"fungibleAmount": b.fungible.String(),
+			"nftCount":       nftCount,
+			"nft": map[string]interface{}{
+				"none":    b.nftNone,
+				"mutable": b.nftMutable,
+				"minting": b.nftMinting,
+			},
+			"utxoCount": b.utxoCount,
+		})
+	}
+
+	tokenMeta := make(map[string]interface{})
+	for _, b := range tokenBuckets {
+		if meta, err := s.bcmr.GetTokenMetadata(ctx, b.category); err == nil {
+			tokenMeta[b.category] = meta
+		}
+	}
+
 	result = map[string]interface{}{
-		"address":      address,
-		"type":         addrType,
-		"balance":      balance,
-		"transactions": history[startIdx:endIdx],
+		"address": address,
+		"type":    addrType,
+		"balance": balance,
+		"scanned": map[string]interface{}{
+			"source":     "fulcrum",
+			"scripthash": scripthash,
+			"tipHeight":  tipHeight,
+			"cursor":     cursor,
+			"window":     window,
+		},
+		"nextCursor":    nextCursor,
+		"tokenBalances": tokenBalances,
+		"tokenMeta":     tokenMeta,
+		"items":         items,
+		"transactions":  transactions,
 		"pagination": map[string]interface{}{
 			"cursor":     cursor,
 			"nextCursor": nextCursor,
@@ -985,6 +1189,383 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 	s.redis.CacheSet(ctx, cacheKey, result, 60*time.Second)
 
 	c.JSON(http.StatusOK, result)
+}
+
+func fetchAddressHistory(ctx context.Context, client *fulcrum.Client, scripthash, address string) ([]map[string]interface{}, error) {
+	history, err := client.GetHistory(ctx, scripthash)
+	if err == nil && len(history) > 0 {
+		return history, nil
+	}
+
+	var addressHistory []map[string]interface{}
+	fallbackErr := client.Request(ctx, "blockchain.address.get_history", []interface{}{address}, &addressHistory)
+	if fallbackErr == nil && len(addressHistory) > 0 {
+		return addressHistory, nil
+	}
+
+	if err != nil {
+		if fallbackErr == nil {
+			return addressHistory, nil
+		}
+		return nil, err
+	}
+
+	if fallbackErr != nil {
+		return history, nil
+	}
+
+	return []map[string]interface{}{}, nil
+}
+
+func fetchAddressBalance(ctx context.Context, client *fulcrum.Client, scripthash, address string) (map[string]interface{}, error) {
+	type balanceAttempt struct {
+		label  string
+		method string
+		args   []interface{}
+	}
+
+	attempts := []balanceAttempt{
+		{label: "scripthash include_tokens", method: "blockchain.scripthash.get_balance", args: []interface{}{scripthash, "include_tokens"}},
+		{label: "address include_tokens", method: "blockchain.address.get_balance", args: []interface{}{address, "include_tokens"}},
+		{label: "scripthash tokens_only", method: "blockchain.scripthash.get_balance", args: []interface{}{scripthash, "tokens_only"}},
+		{label: "address tokens_only", method: "blockchain.address.get_balance", args: []interface{}{address, "tokens_only"}},
+		{label: "scripthash default", method: "blockchain.scripthash.get_balance", args: []interface{}{scripthash}},
+		{label: "address default", method: "blockchain.address.get_balance", args: []interface{}{address}},
+	}
+
+	normalize := func(raw map[string]interface{}, label string) map[string]interface{} {
+		if len(raw) == 0 {
+			return nil
+		}
+
+		confirmed := toInt64(raw["confirmed"])
+		unconfirmed := toInt64(raw["unconfirmed"])
+		if confirmed == 0 && unconfirmed == 0 {
+			return map[string]interface{}{"confirmed": int64(0), "unconfirmed": int64(0)}
+		}
+
+		log.Printf("[ADDRBAL] %s for %s returned non-zero BCH balance: %d confirmed, %d unconfirmed", label, address, confirmed, unconfirmed)
+		return map[string]interface{}{"confirmed": confirmed, "unconfirmed": unconfirmed}
+	}
+
+	var fallback map[string]interface{}
+	var lastErr error
+
+	for _, attempt := range attempts {
+		var raw map[string]interface{}
+		if err := client.Request(ctx, attempt.method, attempt.args, &raw); err != nil {
+			if lastErr == nil {
+				lastErr = err
+			}
+			continue
+		}
+
+		parsed := normalize(raw, attempt.label)
+		if parsed == nil {
+			continue
+		}
+
+		if fallback == nil {
+			fallback = parsed
+		}
+
+		if parsed["confirmed"].(int64)+parsed["unconfirmed"].(int64) > 0 {
+			log.Printf("[ADDRBAL] selected non-zero %s result for %s", attempt.label, address)
+			return parsed, nil
+		}
+	}
+
+	if fallback != nil {
+		if toInt64(fallback["confirmed"]) == 0 && toInt64(fallback["unconfirmed"]) == 0 {
+			log.Printf("[ADDRBAL] all balance attempts returned zero for %s", address)
+		}
+		return fallback, nil
+	}
+
+	if lastErr == nil {
+		return map[string]interface{}{"confirmed": int64(0), "unconfirmed": int64(0)}, nil
+	}
+
+	return nil, lastErr
+}
+
+func fetchAddressMempool(ctx context.Context, client *fulcrum.Client, scripthash, address string) ([]map[string]interface{}, error) {
+	mempool, err := client.GetMempool(ctx, scripthash)
+	if err == nil && len(mempool) > 0 {
+		return mempool, nil
+	}
+
+	var addressMempool []map[string]interface{}
+	fallbackErr := client.Request(ctx, "blockchain.address.get_mempool", []interface{}{address}, &addressMempool)
+	if fallbackErr == nil {
+		return addressMempool, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if fallbackErr != nil {
+		return nil, fallbackErr
+	}
+
+	return []map[string]interface{}{}, nil
+}
+
+func fetchAddressTokenUtxos(ctx context.Context, client *fulcrum.Client, scripthash, address string, out *[]map[string]interface{}) error {
+	attempts := []struct {
+		method string
+		args   []interface{}
+	}{
+		{method: "blockchain.scripthash.listunspent", args: []interface{}{scripthash, "include_tokens"}},
+		{method: "blockchain.address.listunspent", args: []interface{}{address, "include_tokens"}},
+		{method: "blockchain.scripthash.listunspent", args: []interface{}{scripthash, "tokens_only"}},
+		{method: "blockchain.scripthash.listunspent", args: []interface{}{scripthash}},
+		{method: "blockchain.address.listunspent", args: []interface{}{address, "tokens_only"}},
+		{method: "blockchain.address.listunspent", args: []interface{}{address}},
+	}
+
+	for _, attempt := range attempts {
+		candidate := make([]map[string]interface{}, 0)
+		if err := client.Request(ctx, attempt.method, attempt.args, &candidate); err != nil {
+			continue
+		}
+
+		if len(candidate) == 0 {
+			continue
+		}
+
+		*out = append(*out, candidate...)
+		return nil
+	}
+
+	return nil
+}
+
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	case float32:
+		return int64(n)
+	case string:
+		if parsed, err := strconv.ParseInt(n, 10, 64); err == nil {
+			return parsed
+		}
+		if f, err := strconv.ParseFloat(n, 64); err == nil {
+			return int64(f)
+		}
+	}
+	return 0
+}
+
+func toString(v interface{}) string {
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+func satsFromBch(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(math.Round(n * 1e8))
+	case float32:
+		return int64(math.Round(float64(n) * 1e8))
+	case string:
+		if f, err := strconv.ParseFloat(n, 64); err == nil {
+			return int64(math.Round(f * 1e8))
+		}
+	}
+	return 0
+}
+
+func normalizeAddressCandidates(address string) map[string]struct{} {
+	result := make(map[string]struct{})
+	raw := strings.ToLower(strings.TrimSpace(address))
+	if raw == "" {
+		return result
+	}
+
+	result[raw] = struct{}{}
+	if strings.Contains(raw, ":") {
+		parts := strings.SplitN(raw, ":", 2)
+		if len(parts) == 2 && parts[1] != "" {
+			result[parts[1]] = struct{}{}
+		}
+		return result
+	}
+
+	result["bitcoincash:"+raw] = struct{}{}
+	result["bchtest:"+raw] = struct{}{}
+	result["bchreg:"+raw] = struct{}{}
+	return result
+}
+
+func valueMatchesAddress(v interface{}, candidates map[string]struct{}) bool {
+	switch val := v.(type) {
+	case string:
+		_, ok := candidates[strings.ToLower(strings.TrimSpace(val))]
+		return ok
+	case []interface{}:
+		for _, item := range val {
+			if valueMatchesAddress(item, candidates) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasTokenMarker(v map[string]interface{}) bool {
+	for key := range v {
+		if strings.Contains(key, "token") {
+			return true
+		}
+	}
+	return false
+}
+
+func addressMatchesScriptPubKey(scriptPubKey interface{}, candidates map[string]struct{}) bool {
+	if scriptPubKey == nil {
+		return false
+	}
+
+	sp, ok := scriptPubKey.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	if valueMatchesAddress(sp["address"], candidates) {
+		return true
+	}
+	if valueMatchesAddress(sp["addresses"], candidates) {
+		return true
+	}
+
+	return false
+}
+
+func fetchAddressTxItem(
+	ctx context.Context,
+	s *Server,
+	txid string,
+	status string,
+	blockHeight int64,
+	tipHeight int64,
+	targetAddrs map[string]struct{},
+) map[string]interface{} {
+	txData, err := s.fulcrum.GetTransaction(ctx, txid, true)
+	if err != nil {
+		item := map[string]interface{}{
+			"txid":      txid,
+			"status":    status,
+			"direction": "received",
+			"net":       0,
+			"inValue":   0,
+			"outValue":  0,
+		}
+		if status == "confirmed" && blockHeight > 0 {
+			item["blockHeight"] = blockHeight
+		}
+		return item
+	}
+
+	outValue := int64(0)
+	inValue := int64(0)
+	hasTokens := false
+
+	if vouts, ok := txData["vout"].([]interface{}); ok {
+		for _, raw := range vouts {
+			out, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			if hasTokenMarker(out) {
+				hasTokens = true
+			}
+
+			if addressMatchesScriptPubKey(out["scriptPubKey"], targetAddrs) {
+				outValue += satsFromBch(out["value"])
+			}
+		}
+	}
+
+	if vins, ok := txData["vin"].([]interface{}); ok {
+		for _, raw := range vins {
+			vin, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			prevout, ok := vin["prevout"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			if hasTokenMarker(prevout) {
+				hasTokens = true
+			}
+
+			if addressMatchesScriptPubKey(prevout["scriptPubKey"], targetAddrs) {
+				inValue += satsFromBch(prevout["value"])
+			}
+		}
+	}
+
+	net := outValue - inValue
+	direction := "received"
+	if net < 0 {
+		direction = "sent"
+	}
+
+	timeValue := toInt64(txData["time"])
+	if blockTime := toInt64(txData["blocktime"]); blockTime > 0 {
+		timeValue = blockTime
+	}
+
+	if status == "confirmed" && blockHeight <= 0 {
+		blockHeight = toInt64(txData["height"])
+	}
+
+	confirmations := int64(0)
+	if blockHeight > 0 && tipHeight > 0 {
+		confirmations = tipHeight - blockHeight + 1
+		if confirmations < 0 {
+			confirmations = 0
+		}
+	}
+
+	item := map[string]interface{}{
+		"txid":      txid,
+		"status":    status,
+		"time":      timeValue,
+		"direction": direction,
+		"net":       float64(net) / 1e8,
+		"inValue":   float64(inValue) / 1e8,
+		"outValue":  float64(outValue) / 1e8,
+		"hasTokens": hasTokens,
+	}
+
+	if blockHeight > 0 {
+		item["blockHeight"] = blockHeight
+	}
+
+	if confirmations > 0 {
+		item["confirmations"] = confirmations
+	}
+
+	return item
 }
 
 // handleBroadcast broadcasts a raw transaction

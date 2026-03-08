@@ -45,6 +45,8 @@ func ValidateCashAddress(addr string) (bool, string) {
 		return true, "P2PKH"
 	case *bchutil.AddressScriptHash:
 		return true, "P2SH"
+	case *bchutil.AddressScriptHash32:
+		return true, "P2SH32"
 	default:
 		return true, "Unknown"
 	}
@@ -83,6 +85,14 @@ func AddressToScripthash(addr string) (string, error) {
 	case *bchutil.AddressScriptHash:
 		// P2SH: OP_HASH160 <20-byte hash> OP_EQUAL
 		scriptPubKey = []byte{0xa9, 0x14}
+		scriptPubKey = append(scriptPubKey, script...)
+		scriptPubKey = append(scriptPubKey, 0x87)
+	case *bchutil.AddressScriptHash32:
+		// P2SH32: OP_HASH256 <32-byte hash> OP_EQUAL
+		if len(script) != sha256.Size {
+			return "", fmt.Errorf("invalid P2SH32 script hash length: %d", len(script))
+		}
+		scriptPubKey = []byte{0xaa, byte(len(script))}
 		scriptPubKey = append(scriptPubKey, script...)
 		scriptPubKey = append(scriptPubKey, 0x87)
 	default:
@@ -125,19 +135,29 @@ func addressToScripthashManual(addr string) (string, error) {
 
 	var scriptPubKey []byte
 
-	switch version {
-	case 0, 2: // P2PKH or token-aware P2PKH
+	switch GetAddressType(version) {
+	case "P2PKH", "P2PKH-TokenAware":
 		// OP_DUP OP_HASH160 <hash> OP_EQUALVERIFY OP_CHECKSIG
+		if len(hash) != 20 {
+			return "", fmt.Errorf("invalid P2PKH hash length: %d", len(hash))
+		}
 		scriptPubKey = []byte{0x76, 0xa9, byte(len(hash))}
 		scriptPubKey = append(scriptPubKey, hash...)
 		scriptPubKey = append(scriptPubKey, 0x88, 0xac)
-	case 1, 3: // P2SH or token-aware P2SH
-		// OP_HASH160 <hash> OP_EQUAL
-		scriptPubKey = []byte{0xa9, byte(len(hash))}
+	case "P2SH", "P2SH-TokenAware":
+		// P2SH uses OP_HASH160; P2SH32 uses OP_HASH256
+		switch len(hash) {
+		case sha256.Size:
+			scriptPubKey = []byte{0xaa, byte(len(hash))}
+		case 20:
+			scriptPubKey = []byte{0xa9, byte(len(hash))}
+		default:
+			return "", fmt.Errorf("unsupported P2SH hash length: %d", len(hash))
+		}
 		scriptPubKey = append(scriptPubKey, hash...)
 		scriptPubKey = append(scriptPubKey, 0x87)
 	default:
-		return "", fmt.Errorf("unsupported address version: %d", version)
+		return "", fmt.Errorf("unsupported address type: %d", version)
 	}
 
 	// Double SHA256
