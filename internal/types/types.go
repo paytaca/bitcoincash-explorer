@@ -4,21 +4,21 @@ import "time"
 
 // Block represents a blockchain block
 type Block struct {
-	Hash       string    `json:"hash"`
-	Height     int64     `json:"height"`
-	Time       int64     `json:"time"`
-	Size       int       `json:"size"`
-	TxCount    int       `json:"txCount"`
-	Miner      string    `json:"miner,omitempty"`
-	Difficulty float64   `json:"difficulty,omitempty"`
-	Bits       string    `json:"bits,omitempty"`
-	Nonce      int64     `json:"nonce,omitempty"`
-	Version    int32     `json:"version,omitempty"`
-	MerkleRoot string    `json:"merkleRoot,omitempty"`
-	Tx         []string  `json:"tx,omitempty"`
-	Previous   string    `json:"previousblockhash,omitempty"`
-	Next       string    `json:"nextblockhash,omitempty"`
-	Confirmations int64  `json:"confirmations,omitempty"`
+	Hash          string   `json:"hash"`
+	Height        int64    `json:"height"`
+	Time          int64    `json:"time"`
+	Size          int      `json:"size"`
+	TxCount       int      `json:"txCount"`
+	Miner         string   `json:"miner,omitempty"`
+	Difficulty    float64  `json:"difficulty,omitempty"`
+	Bits          string   `json:"bits,omitempty"`
+	Nonce         int64    `json:"nonce,omitempty"`
+	Version       int32    `json:"version,omitempty"`
+	MerkleRoot    string   `json:"merkleRoot,omitempty"`
+	Tx            []string `json:"tx,omitempty"`
+	Previous      string   `json:"previousblockhash,omitempty"`
+	Next          string   `json:"nextblockhash,omitempty"`
+	Confirmations int64    `json:"confirmations,omitempty"`
 }
 
 // Transaction represents a blockchain transaction
@@ -39,12 +39,13 @@ type Transaction struct {
 
 // TransactionInput represents a transaction input
 type TransactionInput struct {
-	Txid     string                 `json:"txid"`
-	Vout     int                    `json:"vout"`
-	Value    float64                `json:"value,omitempty"`
-	ScriptSig map[string]interface{} `json:"scriptSig,omitempty"`
-	Sequence uint32                 `json:"sequence"`
-	Coinbase string                 `json:"coinbase,omitempty"`
+	Txid         string                 `json:"txid"`
+	Vout         int                    `json:"vout"`
+	Value        float64                `json:"value,omitempty"`
+	ScriptSig    map[string]interface{} `json:"scriptSig,omitempty"`
+	Sequence     uint32                 `json:"sequence"`
+	Coinbase     string                 `json:"coinbase,omitempty"`
+	ScriptPubKey map[string]interface{} `json:"scriptPubKey,omitempty"`
 }
 
 // TransactionOutput represents a transaction output
@@ -57,17 +58,17 @@ type TransactionOutput struct {
 
 // TokenMetadata represents BCMR token metadata
 type TokenMetadata struct {
-	Name      string `json:"name,omitempty"`
-	Symbol    string `json:"symbol,omitempty"`
-	Decimals  int    `json:"decimals,omitempty"`
-	IconURL   string `json:"iconUrl,omitempty"`
-	Category  string `json:"category,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Symbol   string `json:"symbol,omitempty"`
+	Decimals int    `json:"decimals,omitempty"`
+	IconURL  string `json:"iconUrl,omitempty"`
+	Category string `json:"category,omitempty"`
 }
 
 // AddressBalance represents an address balance
 type AddressBalance struct {
-	Confirmed   float64            `json:"confirmed"`
-	Unconfirmed float64            `json:"unconfirmed"`
+	Confirmed   float64                 `json:"confirmed"`
+	Unconfirmed float64                 `json:"unconfirmed"`
 	Tokens      map[string]TokenBalance `json:"tokens,omitempty"`
 }
 
@@ -93,19 +94,19 @@ type AddressTransaction struct {
 // NodeStatus represents the status of BCH node and Fulcrum
 type NodeStatus struct {
 	Node struct {
-		Connected     bool  `json:"connected"`
-		BlockHeight   int64 `json:"blockHeight"`
-		Headers       int64 `json:"headers"`
-		Difficulty    float64 `json:"difficulty,omitempty"`
-		Version       int   `json:"version,omitempty"`
-		ProtocolVersion int `json:"protocolVersion,omitempty"`
+		Connected       bool    `json:"connected"`
+		BlockHeight     int64   `json:"blockHeight"`
+		Headers         int64   `json:"headers"`
+		Difficulty      float64 `json:"difficulty,omitempty"`
+		Version         int     `json:"version,omitempty"`
+		ProtocolVersion int     `json:"protocolVersion,omitempty"`
 	} `json:"node"`
 	Fulcrum struct {
 		Connected   bool  `json:"connected"`
 		BlockHeight int64 `json:"blockHeight"`
 	}
 	Redis struct {
-		Connected bool `json:"connected"`
+		Connected   bool  `json:"connected"`
 		LatestBlock int64 `json:"latestBlock"`
 	}
 	InSync bool `json:"inSync"`
@@ -133,14 +134,14 @@ type CacheEntry struct {
 
 // ZMQBlock represents a block received via ZMQ
 type ZMQBlock struct {
-	Hash       string
-	Height     int64
-	Time       int64
-	Size       int
-	TxCount    int
-	Txids      []string
-	Previous   string
-	Raw        []byte
+	Hash     string
+	Height   int64
+	Time     int64
+	Size     int
+	TxCount  int
+	Txids    []string
+	Previous string
+	Raw      []byte
 }
 
 // ZMQTransaction represents a transaction received via ZMQ

@@ -269,8 +269,8 @@ type FulcrumStatus struct {
 }
 
 type ComparisonStatus struct {
-	HeightDiff      int64 `json:"heightDiff,omitempty"`
-	TimeDiffSeconds int64 `json:"timeDiffSeconds,omitempty"`
+	HeightDiff      int64 `json:"heightDiff"`
+	TimeDiffSeconds int64 `json:"timeDiffSeconds"`
 	InSync          bool  `json:"inSync"`
 }
 
@@ -647,6 +647,8 @@ func (s *Server) handleTransaction(c *gin.Context) {
 
 	// Try Redis cache first
 	if tx, err := s.redis.GetFullTransaction(ctx, txid); err == nil && tx != nil {
+		// Enrich inputs with address data from previous outputs
+		s.enrichInputsWithAddressesTx(ctx, tx)
 		// Enrich with BCMR
 		s.enrichWithBCMR(ctx, tx)
 		c.JSON(http.StatusOK, tx)
@@ -664,7 +666,91 @@ func (s *Server) handleTransaction(c *gin.Context) {
 		return
 	}
 
+	// Enrich inputs with address data from previous outputs
+	s.enrichInputsWithAddresses(ctx, txData)
+
 	c.JSON(http.StatusOK, txData)
+}
+
+// enrichInputsWithAddresses fetches previous transaction outputs and adds address info to inputs
+func (s *Server) enrichInputsWithAddresses(ctx context.Context, txData map[string]interface{}) {
+	vin, ok := txData["vin"].([]interface{})
+	if !ok {
+		return
+	}
+
+	for i, v := range vin {
+		input, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		prevTxid, _ := input["txid"].(string)
+		prevVout, _ := input["vout"].(float64)
+
+		if prevTxid == "" {
+			continue
+		}
+
+		prevTx, err := s.rpc.GetRawTransaction(ctx, prevTxid, true)
+		if err != nil {
+			continue
+		}
+
+		vouts, ok := prevTx["vout"].([]interface{})
+		if !ok || int(prevVout) >= len(vouts) {
+			continue
+		}
+
+		output, ok := vouts[int(prevVout)].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		scriptPubKey, ok := output["scriptPubKey"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		input["scriptPubKey"] = scriptPubKey
+		vin[i] = input
+	}
+}
+
+// enrichInputsWithAddressesTx is the typed version for *types.Transaction
+func (s *Server) enrichInputsWithAddressesTx(ctx context.Context, tx *types.Transaction) {
+	if len(tx.Inputs) == 0 {
+		return
+	}
+
+	for i := range tx.Inputs {
+		input := &tx.Inputs[i]
+		if input.Txid == "" {
+			continue
+		}
+
+		prevTx, err := s.rpc.GetRawTransaction(ctx, input.Txid, true)
+		if err != nil {
+			continue
+		}
+
+		vouts, ok := prevTx["vout"].([]interface{})
+		if !ok || input.Vout >= len(vouts) {
+			continue
+		}
+
+		output, ok := vouts[input.Vout].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		scriptPubKey, ok := output["scriptPubKey"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		input.ScriptPubKey = scriptPubKey
+	}
 }
 
 // handleTxOut returns output spent status
