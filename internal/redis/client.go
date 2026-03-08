@@ -316,6 +316,11 @@ func (c *Client) SetTokenMetadata(ctx context.Context, category string, metadata
 	return c.client.Set(ctx, c.key(fmt.Sprintf("bcmr:%s", category)), data, 24*time.Hour).Err()
 }
 
+// DeleteTokenMetadata deletes cached token metadata
+func (c *Client) DeleteTokenMetadata(ctx context.Context, category string) error {
+	return c.client.Del(ctx, c.key(fmt.Sprintf("bcmr:%s", category))).Err()
+}
+
 // GetBlockCount gets the stored block count
 func (c *Client) GetBlockCount(ctx context.Context) (int64, error) {
 	val, err := c.client.Get(ctx, c.key("blockcount")).Int64()

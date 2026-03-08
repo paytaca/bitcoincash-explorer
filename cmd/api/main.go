@@ -268,6 +268,7 @@ func (s *Server) setupRoutes() {
 
 	// BCMR
 	s.router.GET("/api/bcmr/token/:category", s.handleTokenMetadata)
+	s.router.DELETE("/api/bcmr/token/:category/cache", s.handleTokenMetadataCacheClear)
 
 	// Search
 	s.router.GET("/search", s.handleSearch)
@@ -756,6 +757,9 @@ func (s *Server) handleTransaction(c *gin.Context) {
 	// Enrich inputs with address data from previous outputs
 	s.enrichInputsWithAddresses(ctx, txData)
 
+	// Enrich with BCMR metadata
+	s.enrichWithBCMRMap(ctx, txData)
+
 	c.JSON(http.StatusOK, txData)
 }
 
@@ -800,6 +804,17 @@ func (s *Server) enrichInputsWithAddresses(ctx context.Context, txData map[strin
 		}
 
 		input["scriptPubKey"] = scriptPubKey
+
+		// Copy value (BCH amount) from previous output
+		if value, ok := output["value"]; ok {
+			input["value"] = value
+		}
+
+		// Copy tokenData from previous output
+		if tokenData, ok := output["tokenData"]; ok && tokenData != nil {
+			input["tokenData"] = tokenData
+		}
+
 		vin[i] = input
 	}
 }
@@ -837,6 +852,16 @@ func (s *Server) enrichInputsWithAddressesTx(ctx context.Context, tx *types.Tran
 		}
 
 		input.ScriptPubKey = scriptPubKey
+
+		// Copy value (BCH amount) from previous output
+		if value, ok := output["value"].(float64); ok {
+			input.Value = value
+		}
+
+		// Copy tokenData from previous output
+		if tokenData, ok := output["tokenData"].(map[string]interface{}); ok && tokenData != nil {
+			input.TokenData = tokenData
+		}
 	}
 }
 
@@ -1633,7 +1658,9 @@ func (s *Server) handleTokenMetadata(c *gin.Context) {
 	// Fetch from BCMR
 	metadata, err := s.bcmr.GetTokenMetadata(ctx, category)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
+		log.Printf("[BCMR] token metadata unavailable for category=%s: %v", category, err)
+		// Return 404 for truly missing tokens so browsers/CDNs don't cache empty success responses
+		c.JSON(http.StatusNotFound, gin.H{"error": "Token metadata not found"})
 		return
 	}
 
@@ -1641,6 +1668,26 @@ func (s *Server) handleTokenMetadata(c *gin.Context) {
 	s.redis.SetTokenMetadata(ctx, category, metadata)
 
 	c.JSON(http.StatusOK, metadata)
+}
+
+// handleTokenMetadataCacheClear clears the cache for a token
+func (s *Server) handleTokenMetadataCacheClear(c *gin.Context) {
+	ctx := c.Request.Context()
+	category := c.Param("category")
+
+	if category == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Category required"})
+		return
+	}
+
+	if err := s.redis.DeleteTokenMetadata(ctx, category); err != nil {
+		log.Printf("[BCMR] Failed to clear cache for category=%s: %v", category, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear cache"})
+		return
+	}
+
+	log.Printf("[BCMR] Cache cleared for category=%s", category)
+	c.JSON(http.StatusOK, gin.H{"message": "Cache cleared"})
 }
 
 // handleSearch redirects search queries
@@ -1675,29 +1722,104 @@ func (s *Server) handleSearch(c *gin.Context) {
 
 // enrichWithBCMR enriches transaction with BCMR metadata
 func (s *Server) enrichWithBCMR(ctx context.Context, tx *types.Transaction) {
-	if !tx.HasTokens {
+	// Collect token categories from outputs and inputs
+	categories := collectTokenCategoriesFromTx(tx)
+
+	if len(categories) == 0 {
 		return
 	}
 
-	// Collect token categories from outputs
-	categories := make(map[string]bool)
+	// Fetch metadata for each category
+	tx.TokenData = make(map[string]interface{})
+	for category := range categories {
+		if metadata, err := s.bcmr.GetTokenMetadata(ctx, category); err == nil {
+			tx.TokenData[category] = metadata
+		}
+	}
+}
+
+// enrichWithBCMRMap enriches transaction (as map) with BCMR metadata
+func (s *Server) enrichWithBCMRMap(ctx context.Context, txData map[string]interface{}) {
+	categories := collectTokenCategoriesFromMap(txData)
+	if len(categories) == 0 {
+		return
+	}
+
+	// Fetch metadata for each category
+	tokenMeta := make(map[string]interface{})
+	for category := range categories {
+		if metadata, err := s.bcmr.GetTokenMetadata(ctx, category); err == nil {
+			tokenMeta[category] = metadata
+		}
+	}
+
+	if len(tokenMeta) > 0 {
+		txData["tokenMeta"] = tokenMeta
+	}
+}
+
+func collectTokenCategoriesFromTx(tx *types.Transaction) map[string]struct{} {
+	categories := make(map[string]struct{})
+	addCategory := func(category string) {
+		if category == "" {
+			return
+		}
+		categories[strings.TrimSpace(category)] = struct{}{}
+	}
+
 	for _, output := range tx.Outputs {
 		if output.TokenData != nil {
 			if category, ok := output.TokenData["category"].(string); ok {
-				categories[category] = true
+				addCategory(category)
 			}
 		}
 	}
 
-	// Fetch metadata for each category
-	if len(categories) > 0 {
-		tx.TokenData = make(map[string]interface{})
-		for category := range categories {
-			if metadata, err := s.bcmr.GetTokenMetadata(ctx, category); err == nil {
-				tx.TokenData[category] = metadata
+	for _, input := range tx.Inputs {
+		if input.TokenData != nil {
+			if category, ok := input.TokenData["category"].(string); ok {
+				addCategory(category)
 			}
 		}
 	}
+
+	return categories
+}
+
+func collectTokenCategoriesFromMap(txData map[string]interface{}) map[string]struct{} {
+	categories := make(map[string]struct{})
+	addCategory := func(category string) {
+		if category == "" {
+			return
+		}
+		categories[strings.TrimSpace(category)] = struct{}{}
+	}
+
+	collect := func(items interface{}) {
+		arr, ok := items.([]interface{})
+		if !ok {
+			return
+		}
+		for _, raw := range arr {
+			if item, ok := raw.(map[string]interface{}); ok {
+				if tokenData, ok := item["tokenData"]; ok {
+					if category, ok := tokenData.(map[string]interface{}); ok {
+						if cat, ok := category["category"].(string); ok {
+							addCategory(cat)
+						}
+					}
+					if cat, ok := tokenData.(string); ok {
+						addCategory(cat)
+					}
+				}
+			}
+		}
+	}
+
+	collect(txData["vout"])
+	collect(txData["vin"])
+
+	return categories
 }
 
 // extractMinerFromTx extracts pool name from coinbase transaction

@@ -34,7 +34,7 @@ type Transaction struct {
 	Confirmations int64                  `json:"confirmations,omitempty"`
 	Inputs        []TransactionInput     `json:"vin,omitempty"`
 	Outputs       []TransactionOutput    `json:"vout,omitempty"`
-	TokenData     map[string]interface{} `json:"tokenData,omitempty"`
+	TokenData     map[string]interface{} `json:"tokenMeta,omitempty"`
 }
 
 // TransactionInput represents a transaction input
@@ -46,6 +46,7 @@ type TransactionInput struct {
 	Sequence     uint32                 `json:"sequence"`
 	Coinbase     string                 `json:"coinbase,omitempty"`
 	ScriptPubKey map[string]interface{} `json:"scriptPubKey,omitempty"`
+	TokenData    map[string]interface{} `json:"tokenData,omitempty"`
 }
 
 // TransactionOutput represents a transaction output

@@ -451,7 +451,7 @@ function normalizeTokenMeta(payload: any): { name?: string; symbol?: string; dec
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const t = payload?.token || payload
     return {
-      name: payload?.name,
+      name: payload?.name || t?.name,
       symbol: t?.symbol,
       decimals: typeof t?.decimals === 'number' ? t.decimals : undefined
     }
@@ -841,4 +841,3 @@ function spentStatusClass(o: TxOutput) {
   font-weight: 500;
 }
 </style>
-
