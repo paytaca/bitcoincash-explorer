@@ -882,38 +882,33 @@ func (s *Server) handleTxOut(c *gin.Context) {
 		return
 	}
 
-	// Get transaction to check if output is spent
-	txData, err := s.rpc.GetRawTransaction(ctx, txid, true)
+	// Use gettxout to check if output is unspent
+	// Returns nil if the output is spent
+	txout, err := s.rpc.GetTxOut(ctx, txid, vout, true)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check output"})
 		return
 	}
 
-	// Check vout exists
-	vouts, ok := txData["vout"].([]interface{})
-	if !ok || vout >= len(vouts) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Output not found"})
+	// If txout is nil, the output is spent
+	if txout == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"txid":    txid,
+			"vout":    vout,
+			"status":  "spent",
+			"spent":   true,
+			"spender": "",
+		})
 		return
 	}
 
-	output := vouts[vout].(map[string]interface{})
-	spent := false
-	spender := ""
-
-	// To determine if spent, we'd need to query all inputs
-	// This is expensive, so we'll return unconfirmed
-	status := "unspent"
-	if spent {
-		status = "spent"
-	}
+	// Output is unspent
 	c.JSON(http.StatusOK, gin.H{
-		"txid":         txid,
-		"vout":         vout,
-		"status":       status,
-		"spent":        spent,
-		"spender":      spender,
-		"scriptPubKey": output["scriptPubKey"],
-		"value":        output["value"],
+		"txid":   txid,
+		"vout":   vout,
+		"status": "unspent",
+		"spent":  false,
+		"value":  txout["value"],
 	})
 }
 

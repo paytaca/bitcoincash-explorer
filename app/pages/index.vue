@@ -385,8 +385,8 @@ function formatBlockSize(bytes: number): string {
   color: var(--color-text-secondary);
 }
 @media (max-width: 768px) {
-  .txTable th:nth-child(2),
-  .txTable td:nth-child(2) {
+  .txTable th:nth-child(4),
+  .txTable td:nth-child(4) {
     display: none;
   }
 }

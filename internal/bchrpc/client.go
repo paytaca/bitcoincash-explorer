@@ -20,17 +20,17 @@ type Client struct {
 	username string
 	password string
 	client   *http.Client
-	
+
 	// Concurrency control
 	sem      chan struct{}
 	maxConns int
-	
+
 	// Request deduplication
 	inFlight map[string]*inFlightRequest
 	ifMu     sync.RWMutex
-	
+
 	// Circuit breaker
-	cb       *gobreaker.CircuitBreaker
+	cb *gobreaker.CircuitBreaker
 }
 
 // inFlightRequest tracks in-flight RPC calls
@@ -68,11 +68,11 @@ func (e *RPCError) Error() string {
 
 // Config holds client configuration
 type Config struct {
-	URL         string
-	Username    string
-	Password    string
-	Timeout     time.Duration
-	MaxConns    int
+	URL      string
+	Username string
+	Password string
+	Timeout  time.Duration
+	MaxConns int
 }
 
 // NewClient creates a new BCH RPC client
@@ -83,7 +83,7 @@ func NewClient(cfg Config) *Client {
 	if cfg.MaxConns == 0 {
 		cfg.MaxConns = 20
 	}
-	
+
 	cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
 		Name:        "bch-rpc",
 		MaxRequests: 3,
@@ -97,7 +97,7 @@ func NewClient(cfg Config) *Client {
 			fmt.Printf("Circuit breaker %s: %s -> %s\n", name, from, to)
 		},
 	})
-	
+
 	c := &Client{
 		url:      cfg.URL,
 		username: cfg.Username,
@@ -110,10 +110,10 @@ func NewClient(cfg Config) *Client {
 		inFlight: make(map[string]*inFlightRequest),
 		cb:       cb,
 	}
-	
+
 	// Start cleanup goroutine for in-flight requests
 	go c.cleanupInFlight()
-	
+
 	return c
 }
 
@@ -121,7 +121,7 @@ func NewClient(cfg Config) *Client {
 func (c *Client) cleanupInFlight() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		c.ifMu.Lock()
 		for key, req := range c.inFlight {
@@ -144,7 +144,7 @@ func requestKey(method string, params interface{}) string {
 // Call makes an RPC call with deduplication and circuit breaker
 func (c *Client) Call(ctx context.Context, method string, params interface{}, result interface{}) error {
 	key := requestKey(method, params)
-	
+
 	// Check for in-flight request
 	c.ifMu.RLock()
 	if req, ok := c.inFlight[key]; ok {
@@ -163,7 +163,7 @@ func (c *Client) Call(ctx context.Context, method string, params interface{}, re
 		}
 	}
 	c.ifMu.RUnlock()
-	
+
 	// Create new in-flight request
 	c.ifMu.Lock()
 	req := &inFlightRequest{
@@ -171,11 +171,11 @@ func (c *Client) Call(ctx context.Context, method string, params interface{}, re
 	}
 	c.inFlight[key] = req
 	c.ifMu.Unlock()
-	
+
 	// Execute request
 	req.err = c.callWithBreaker(ctx, method, params, &req.resp)
 	close(req.done)
-	
+
 	// Clean up after a short delay
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -183,11 +183,11 @@ func (c *Client) Call(ctx context.Context, method string, params interface{}, re
 		delete(c.inFlight, key)
 		c.ifMu.Unlock()
 	}()
-	
+
 	if req.err != nil {
 		return req.err
 	}
-	
+
 	// Copy result to caller's result
 	resultJSON, _ := json.Marshal(req.resp)
 	return json.Unmarshal(resultJSON, result)
@@ -198,11 +198,11 @@ func (c *Client) callWithBreaker(ctx context.Context, method string, params inte
 	resp, err := c.cb.Execute(func() (interface{}, error) {
 		return nil, c.call(ctx, method, params, result)
 	})
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	_ = resp
 	return nil
 }
@@ -216,49 +216,49 @@ func (c *Client) call(ctx context.Context, method string, params interface{}, re
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	
+
 	reqBody := RPCRequest{
 		JSONRPC: "1.0",
 		Method:  method,
 		Params:  params,
 		ID:      1,
 	}
-	
+
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", c.url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
 	if c.username != "" || c.password != "" {
 		req.SetBasicAuth(c.username, c.password)
 	}
-	
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	var rpcResp RPCResponse
 	if err := json.Unmarshal(body, &rpcResp); err != nil {
 		return fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-	
+
 	if rpcResp.Error != nil {
 		// Check for work queue depth exceeded (circuit breaker trigger)
 		if strings.Contains(rpcResp.Error.Message, "work queue depth exceeded") {
@@ -266,13 +266,13 @@ func (c *Client) call(ctx context.Context, method string, params interface{}, re
 		}
 		return rpcResp.Error
 	}
-	
+
 	if result != nil && rpcResp.Result != nil {
 		if err := json.Unmarshal(rpcResp.Result, result); err != nil {
 			return fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -337,6 +337,17 @@ func (c *Client) GetMempoolInfo(ctx context.Context) (map[string]interface{}, er
 	var result map[string]interface{}
 	err := c.Call(ctx, "getmempoolinfo", []interface{}{}, &result)
 	return result, err
+}
+
+// GetTxOut returns information about an unspent transaction output
+// Returns nil if the output is spent
+func (c *Client) GetTxOut(ctx context.Context, txid string, vout int, includeMempool bool) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.Call(ctx, "gettxout", []interface{}{txid, vout, includeMempool}, &result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Close closes the client
