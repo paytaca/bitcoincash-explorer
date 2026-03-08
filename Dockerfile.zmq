@@ -28,4 +28,7 @@ RUN apk add --no-cache ca-certificates zeromq
 # Copy binary
 COPY --from=builder /app/zmq-listener /usr/local/bin/zmq-listener
 
+# Copy mining pools configuration for runtime lookup
+COPY cmd/api/pools.json /app/pools.json
+
 CMD ["/usr/local/bin/zmq-listener"]

@@ -124,12 +124,13 @@ def sync(c):
 
 
 @task
-def build(c):
+def build(c, no_cache=False):
     """Build Docker image (remote)"""
     conn = c.config.run.env.get("conn") or get_connection()
+    cache_flag = " --no-cache" if str(no_cache).lower() in ["1", "true", "yes"] else ""
     with conn.cd(CONFIG["PATH"]):
         conn.run(
-            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} build"
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} build{cache_flag}"
         )
 
 
@@ -139,7 +140,7 @@ def up(c):
     conn = c.config.run.env.get("conn") or get_connection()
     with conn.cd(CONFIG["PATH"]):
         conn.run(
-            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} up -d --build --force-recreate"
+            f"sudo docker-compose -p {CONFIG['COMPOSE_PROJECT']} -f {CONFIG['COMPOSE_FILE']} up -d"
         )
 
 
@@ -227,12 +228,14 @@ def deploy(c):
     print("🚀 Starting deployment...")
     sync(c)
     print("📦 Building Docker image...")
-    build(c)
+    build(c, no_cache=True)
     print("🛑 Stopping old containers...")
     down(c)
+    print("🎬 Starting new containers...")
+    up(c)
     print("🧹 Clearing Redis lists...")
     clear_redis(c)
     print("🧹 Clearing server cache...")
     clear_cache(c)
-    print("🎬 Starting new containers...")
-    up(c)
+    # print("📜 Streaming logs (Ctrl+C to exit)...")
+    # logs(c, follow=True)

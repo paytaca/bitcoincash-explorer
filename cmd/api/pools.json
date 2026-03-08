@@ -1,0 +1,229 @@
+{
+  "pools": [
+    {
+      "name": "ViaBTC",
+      "tags": [
+        "/ViaBTC/",
+        "ViaBTC",
+        "viabtc.com deploy"
+      ],
+      "urls": ["https://viabtc.com", "https://pool.viabtc.com"]
+    },
+    {
+      "name": "AntPool",
+      "tags": [
+        "/AntPool/",
+        "Mined by AntPool",
+        "Mined By AntPool"
+      ],
+      "urls": ["https://www.antpool.com"]
+    },
+    {
+      "name": "CloverPool",
+      "tags": [
+        "/BTC.COM/",
+        "/BTC.com/",
+        "btccom",
+        "btccomf"
+      ],
+      "urls": ["https://cloverpool.com/", "https://pool.btc.com"]
+    },
+    {
+      "name": "Poolin",
+      "tags": [
+        "/poolin.com/",
+        "Poolin"
+      ],
+      "urls": ["https://www.poolin.com/", "https://poolin.com"]
+    },
+    {
+      "name": "F2Pool",
+      "tags": [
+        "七彩神仙鱼",
+        "🐟",
+        "F2Pool",
+        "fengshui"
+      ],
+      "urls": ["https://www.f2pool.com", "https://f2pool.com"]
+    },
+    {
+      "name": "Binance Pool",
+      "tags": [
+        "/Binance/",
+        "binance"
+      ],
+      "urls": ["https://pool.binance.com/"]
+    },
+    {
+      "name": "Foundry USA",
+      "tags": [
+        "Foundry USA Pool",
+        "/2cDw/"
+      ],
+      "urls": ["https://foundrydigital.com/"]
+    },
+    {
+      "name": "SBI Crypto",
+      "tags": [
+        "/SBICrypto.com Pool/",
+        "SBI Crypto",
+        "SBICrypto"
+      ],
+      "urls": ["https://sbicrypto.com", "https://www.sbicrypto.com"]
+    },
+    {
+      "name": "SlushPool",
+      "tags": [
+        "/slush/",
+        "Braiins Pool"
+      ],
+      "urls": ["https://braiins.com/pool", "https://pool.slushpool.com"]
+    },
+    {
+      "name": "EMCDPool",
+      "tags": [
+        "/one_more_mcd/"
+      ],
+      "urls": ["https://pool.emcd.io"]
+    },
+    {
+      "name": "Luxor",
+      "tags": [
+        "Luxor"
+      ],
+      "urls": ["https://mining.luxor.tech"]
+    },
+    {
+      "name": "Bitfarms",
+      "tags": [
+        "BITFARMS"
+      ],
+      "urls": ["https://www.bitfarms.io/"]
+    },
+    {
+      "name": "Huobi.pool",
+      "tags": [
+        "/Huobi/",
+        "/HuoBi/"
+      ],
+      "urls": ["https://www.hpt.com/"]
+    },
+    {
+      "name": "BTC.TOP",
+      "tags": [
+        "/BTC.TOP/"
+      ],
+      "urls": ["http://www.btc.top/"]
+    },
+    {
+      "name": "Bitcoin.com",
+      "tags": [
+        "pool.bitcoin.com"
+      ],
+      "urls": ["https://www.bitcoin.com/"]
+    },
+    {
+      "name": "Rawpool",
+      "tags": [
+        "/Rawpool.com/",
+        "Rawpool"
+      ],
+      "urls": ["https://www.rawpool.com/", "https://bch.rawpool.com"]
+    },
+    {
+      "name": "OKExPool",
+      "tags": [
+        "/www.okex.com/"
+      ],
+      "urls": ["https://www.okex.com/"]
+    },
+    {
+      "name": "CanoePool",
+      "tags": [
+        "/CANOE/",
+        "/canoepool/"
+      ],
+      "urls": ["https://www.canoepool.com/"]
+    },
+    {
+      "name": "ConnectBTC",
+      "tags": [
+        "/ConnectBTC - Home for Miners/"
+      ],
+      "urls": ["https://www.connectbtc.com/"]
+    },
+    {
+      "name": "58COIN",
+      "tags": [
+        "/58coin.com/"
+      ],
+      "urls": ["https://www.58coin.com"]
+    },
+    {
+      "name": "MARA Pool",
+      "tags": [
+        "MARA Pool",
+        "MARA Made in USA"
+      ],
+      "urls": ["https://www.mara.com/"]
+    },
+    {
+      "name": "BitFuFu",
+      "tags": [
+        "BitFuFu"
+      ],
+      "urls": ["https://www.bitfufu.com/pool"]
+    },
+    {
+      "name": "K1Pool",
+      "tags": [
+        "K1Pool.com",
+        "k1pool"
+      ],
+      "urls": ["https://k1pool.com/"]
+    },
+    {
+      "name": "JCBCH",
+      "tags": [
+        "JCBCH",
+        "jcbch"
+      ],
+      "urls": []
+    },
+    {
+      "name": "HASHPOOL",
+      "tags": [
+        "HASHPOOL",
+        "hashpool"
+      ],
+      "urls": ["http://hashpool.com/"]
+    },
+    {
+      "name": "CKPool",
+      "tags": [
+        "/ckpool.org/",
+        "/solo.ckpool.org/"
+      ],
+      "urls": ["http://ckpool.org"]
+    },
+    {
+      "name": "NiceHash",
+      "tags": [
+        "/NiceHashSolo"
+      ],
+      "urls": ["https://solo.nicehash.com/"]
+    },
+    {
+      "name": "Minesource",
+      "tags": [
+        "minesource"
+      ],
+      "urls": []
+    },
+    {
+      "name": "Unknown",
+      "tags": [],
+      "urls": []
+    }
+  ]
+}

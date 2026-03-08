@@ -70,6 +70,9 @@ COPY --from=zmq-builder /app/zmq-listener /usr/local/bin/zmq-listener
 # Copy built frontend
 COPY --from=frontend-builder /app/.output/public /app/public
 
+# Copy pools.json for miner identification
+COPY cmd/api/pools.json /app/pools.json
+
 # Expose port
 EXPOSE 8000
 

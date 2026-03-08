@@ -33,6 +33,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    working_dir: /app
     # Host networking for ZMQ (BCHN is on host)
     network_mode: "host"
     command: ["/usr/local/bin/zmq-listener"]
@@ -74,6 +75,7 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    working_dir: /app
     command: ["/usr/local/bin/api"]
 
 volumes:

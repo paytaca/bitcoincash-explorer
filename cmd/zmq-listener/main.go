@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -34,6 +35,19 @@ type Config struct {
 	MaxTxs      int
 }
 
+// MiningPool represents a mining pool configuration
+type MiningPool struct {
+	Name      string   `json:"name"`
+	Addresses []string `json:"addresses"`
+	Tags      []string `json:"tags"`
+	Urls      []string `json:"urls"`
+}
+
+// MiningPools holds all mining pool configurations
+type MiningPools struct {
+	Pools []MiningPool
+}
+
 // Service represents the ZMQ listener service
 type Service struct {
 	config        Config
@@ -42,6 +56,7 @@ type Service struct {
 	redis         *redis.Client
 	rpc           *bchrpc.Client
 	lastBlockHash string
+	pools         *MiningPools
 }
 
 // loadConfig loads configuration from environment
@@ -76,6 +91,36 @@ func getEnvInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
+// loadMiningPools loads mining pool configurations from pools.json
+func loadMiningPools() (*MiningPools, error) {
+	paths := []string{"pools.json", "/app/pools.json", "./pools.json"}
+	var data []byte
+	var err error
+	var usedPath string
+
+	for _, path := range paths {
+		data, err = os.ReadFile(path)
+		if err == nil {
+			usedPath = path
+			break
+		}
+	}
+
+	if data == nil {
+		return nil, fmt.Errorf("failed to read pools.json from any path: %v", err)
+	}
+
+	log.Printf("[POOLS] Loaded pools.json from: %s (%d bytes)", usedPath, len(data))
+
+	var pools MiningPools
+	if err := json.Unmarshal(data, &pools); err != nil {
+		return nil, fmt.Errorf("failed to parse pools.json: %w", err)
+	}
+
+	log.Printf("[POOLS] Successfully loaded %d pools", len(pools.Pools))
+	return &pools, nil
+}
+
 // NewService creates a new ZMQ listener service
 func NewService(cfg Config) (*Service, error) {
 	// Initialize Redis
@@ -99,10 +144,20 @@ func NewService(cfg Config) (*Service, error) {
 		})
 	}
 
+	// Load mining pools configuration
+	pools, err := loadMiningPools()
+	if err != nil {
+		log.Printf("[POOLS] ERROR: Failed to load mining pools: %v", err)
+		pools = &MiningPools{Pools: []MiningPool{}}
+	} else {
+		log.Printf("[POOLS] Successfully initialized with %d mining pools", len(pools.Pools))
+	}
+
 	return &Service{
 		config: cfg,
 		redis:  redisClient,
 		rpc:    rpcClient,
+		pools:  pools,
 	}, nil
 }
 
@@ -360,44 +415,74 @@ func (s *Service) parseBlock(data map[string]interface{}) *types.Block {
 
 // extractMiner extracts pool name from coinbase
 func (s *Service) extractMiner(txData map[string]interface{}) string {
+	// First: Extract from coinbase and match against known pool tags
 	vinRaw, ok := txData["vin"]
-	if !ok {
-		log.Printf("No vin field in tx data")
-		return ""
+	if ok {
+		if vin, ok := vinRaw.([]interface{}); ok && len(vin) > 0 {
+			if firstIn, ok := vin[0].(map[string]interface{}); ok {
+				if coinbase, ok := firstIn["coinbase"].(string); ok && len(coinbase) > 0 {
+					// Decode coinbase hex to text
+					decoded, err := hex.DecodeString(coinbase)
+					if err == nil {
+						// Convert to printable ASCII
+						var result []byte
+						for _, b := range decoded {
+							if b >= 0x20 && b <= 0x7E {
+								result = append(result, b)
+							} else {
+								result = append(result, ' ')
+							}
+						}
+						coinbaseText := string(result)
+
+						log.Printf("[MINER DEBUG] coinbase text: %.100s", coinbaseText)
+
+						// Match against known pool tags (case-insensitive)
+						coinbaseLower := strings.ToLower(coinbaseText)
+						for _, pool := range s.pools.Pools {
+							for _, tag := range pool.Tags {
+								if strings.Contains(coinbaseLower, strings.ToLower(tag)) {
+									log.Printf("[MINER DEBUG] Matched pool: %s via tag: %s", pool.Name, tag)
+									return pool.Name
+								}
+							}
+						}
+
+						// Fallback: Extract text between slashes (like /K1Pool.com/ → K1Pool.com)
+						// This is what bch-rpc-explorer does
+						if idx := strings.Index(coinbaseText, "/"); idx != -1 {
+							endIdx := strings.Index(coinbaseText[idx+1:], "/")
+							if endIdx != -1 {
+								possibleSignal := strings.TrimSpace(coinbaseText[idx+1 : idx+1+endIdx])
+								if len(possibleSignal) >= 3 && len(possibleSignal) <= 50 {
+									log.Printf("[MINER DEBUG] Using possibleSignal: %s", possibleSignal)
+									return possibleSignal
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
-	vin, ok := vinRaw.([]interface{})
-	if !ok {
-		log.Printf("vin is not an array: %T", vinRaw)
-		return ""
+	// Fallback: return payout address
+	if voutRaw, ok := txData["vout"].([]interface{}); ok && len(voutRaw) > 0 {
+		if firstVout, ok := voutRaw[0].(map[string]interface{}); ok {
+			if scriptPubKey, ok := firstVout["scriptPubKey"].(map[string]interface{}); ok {
+				if addr, ok := scriptPubKey["address"].(string); ok {
+					return addr
+				}
+				if addrs, ok := scriptPubKey["addresses"].([]interface{}); ok && len(addrs) > 0 {
+					if addr, ok := addrs[0].(string); ok {
+						return addr
+					}
+				}
+			}
+		}
 	}
 
-	if len(vin) == 0 {
-		log.Printf("vin array is empty")
-		return ""
-	}
-
-	firstIn, ok := vin[0].(map[string]interface{})
-	if !ok {
-		log.Printf("First vin entry is not a map: %T", vin[0])
-		return ""
-	}
-
-	coinbase, ok := firstIn["coinbase"].(string)
-	if !ok {
-		log.Printf("No coinbase field in first vin: available keys: %v", getMapKeys(firstIn))
-		return ""
-	}
-
-	if len(coinbase) == 0 {
-		log.Printf("Coinbase is empty")
-		return ""
-	}
-
-	log.Printf("Extracting miner from coinbase hex (length: %d)", len(coinbase))
-	miner := extractMinerFromCoinbaseHex(coinbase)
-	log.Printf("Extraction result: %s", miner)
-	return miner
+	return "Unknown"
 }
 
 // getMapKeys returns the keys of a map for debugging

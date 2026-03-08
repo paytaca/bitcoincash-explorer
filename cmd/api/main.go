@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -50,6 +51,57 @@ type Server struct {
 	rpc     *bchrpc.Client
 	fulcrum *fulcrum.Client
 	bcmr    *bcmr.Client
+	pools   *MiningPools
+}
+
+// MiningPool represents a mining pool configuration
+type MiningPool struct {
+	Name      string   `json:"name"`
+	Addresses []string `json:"addresses"`
+	Tags      []string `json:"tags"`
+	Urls      []string `json:"urls"`
+}
+
+// MiningPools holds all mining pool configurations
+type MiningPools struct {
+	Pools []MiningPool
+}
+
+// loadMiningPools loads mining pool configurations from pools.json
+func loadMiningPools() (*MiningPools, error) {
+	// Try multiple paths
+	paths := []string{"pools.json", "/app/pools.json", "./pools.json"}
+	var data []byte
+	var err error
+	var usedPath string
+
+	for _, path := range paths {
+		data, err = os.ReadFile(path)
+		if err == nil {
+			usedPath = path
+			break
+		}
+	}
+
+	if data == nil {
+		return nil, fmt.Errorf("failed to read pools.json from any path: %v", err)
+	}
+
+	log.Printf("[POOLS] Loaded pools.json from: %s (%d bytes)", usedPath, len(data))
+
+	var pools MiningPools
+	if err := json.Unmarshal(data, &pools); err != nil {
+		return nil, fmt.Errorf("failed to parse pools.json: %w", err)
+	}
+
+	log.Printf("[POOLS] Successfully loaded %d pools", len(pools.Pools))
+	for i, p := range pools.Pools {
+		if i < 5 {
+			log.Printf("[POOLS] Pool %d: %s with %d tags", i, p.Name, len(p.Tags))
+		}
+	}
+
+	return &pools, nil
 }
 
 // loadConfig loads configuration from environment
@@ -125,6 +177,15 @@ func NewServer(cfg Config) (*Server, error) {
 		Timeout: 15 * time.Second,
 	})
 
+	// Load mining pools configuration
+	pools, err := loadMiningPools()
+	if err != nil {
+		log.Printf("[POOLS] ERROR: Failed to load mining pools: %v", err)
+		pools = &MiningPools{Pools: []MiningPool{}}
+	} else {
+		log.Printf("[POOLS] Successfully initialized with %d mining pools", len(pools.Pools))
+	}
+
 	// Setup router
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -139,6 +200,7 @@ func NewServer(cfg Config) (*Server, error) {
 		rpc:     rpcClient,
 		fulcrum: fulcrumClient,
 		bcmr:    bcmrClient,
+		pools:   pools,
 	}
 
 	s.setupRoutes()
@@ -458,78 +520,100 @@ func (s *Server) handleBlockCount(c *gin.Context) {
 func (s *Server) handleLatestBlocks(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	// Try Redis first
-	blocks, err := s.redis.GetBlocks(ctx, 15)
-	if err == nil && len(blocks) > 0 {
-		// Log miner data for debugging
-		for i, b := range blocks {
-			if b.Miner != "" {
-				log.Printf("[API] Block %d (height %d) from Redis has miner: %s", i, b.Height, b.Miner)
-			} else {
-				log.Printf("[API] Block %d (height %d) from Redis has NO miner", i, b.Height)
-			}
-		}
-		c.JSON(http.StatusOK, blocks)
-		return
-	}
+	const blockLimit = 15
 
+	// Try Redis first
+	blocks, err := s.redis.GetBlocks(ctx, int64(blockLimit))
 	if err != nil {
 		log.Printf("[API] Redis GetBlocks error: %v", err)
+	}
+
+	if len(blocks) >= blockLimit {
+		c.JSON(http.StatusOK, blocks)
+		return
 	}
 
 	// Fall back to RPC
 	log.Printf("[API] Falling back to RPC for blocks")
 	if s.rpc != nil {
-		count, err := s.rpc.GetBlockCount(ctx)
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to get blocks"})
+		rpcBlocks, err := s.fetchLatestBlocks(ctx, blockLimit)
+		if err == nil && len(rpcBlocks) > 0 {
+			if err := s.redis.SetBlocks(ctx, rpcBlocks); err != nil {
+				log.Printf("[API] Failed to cache blocks in Redis: %v", err)
+			}
+			c.JSON(http.StatusOK, rpcBlocks)
 			return
 		}
 
-		blocks = make([]*types.Block, 0, 15)
-		for i := int64(0); i < 15 && count-i >= 0; i++ {
-			hash, err := s.rpc.GetBlockHash(ctx, count-i)
-			if err != nil {
-				continue
-			}
-
-			blockData, err := s.rpc.GetBlock(ctx, hash, 1)
-			if err != nil {
-				continue
-			}
-
-			block := &types.Block{
-				Hash:   hash,
-				Height: count - i,
-			}
-			if t, ok := blockData["time"].(float64); ok {
-				block.Time = int64(t)
-			}
-			if size, ok := blockData["size"].(float64); ok {
-				block.Size = int(size)
-			}
-			if nTx, ok := blockData["nTx"].(float64); ok {
-				block.TxCount = int(nTx)
-			}
-
-			// Extract miner from coinbase transaction
-			if txs, ok := blockData["tx"].([]interface{}); ok && len(txs) > 0 {
-				if txid, ok := txs[0].(string); ok {
-					txData, err := s.rpc.GetRawTransaction(ctx, txid, true)
-					if err == nil && txData != nil {
-						block.Miner = extractMinerFromTx(txData)
-					}
-				}
-			}
-
-			blocks = append(blocks, block)
+		if err != nil {
+			log.Printf("[API] RPC fetch error: %v", err)
 		}
+	}
 
+	if len(blocks) > 0 {
 		c.JSON(http.StatusOK, blocks)
 		return
 	}
 
 	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to get blocks"})
+}
+
+func (s *Server) fetchLatestBlocks(ctx context.Context, limit int) ([]*types.Block, error) {
+	if s.rpc == nil {
+		return nil, fmt.Errorf("rpc unavailable")
+	}
+
+	count, err := s.rpc.GetBlockCount(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	blocks := make([]*types.Block, 0, limit)
+	seen := make(map[string]struct{})
+
+	for i := int64(0); int(i) < limit && count-i >= 0; i++ {
+		hash, err := s.rpc.GetBlockHash(ctx, count-i)
+		if err != nil {
+			continue
+		}
+
+		if _, exists := seen[hash]; exists {
+			continue
+		}
+		seen[hash] = struct{}{}
+
+		blockData, err := s.rpc.GetBlock(ctx, hash, 1)
+		if err != nil {
+			continue
+		}
+
+		block := &types.Block{
+			Hash:   hash,
+			Height: count - i,
+		}
+		if t, ok := blockData["time"].(float64); ok {
+			block.Time = int64(t)
+		}
+		if size, ok := blockData["size"].(float64); ok {
+			block.Size = int(size)
+		}
+		if nTx, ok := blockData["nTx"].(float64); ok {
+			block.TxCount = int(nTx)
+		}
+
+		if txs, ok := blockData["tx"].([]interface{}); ok && len(txs) > 0 {
+			if txid, ok := txs[0].(string); ok {
+				txData, err := s.rpc.GetRawTransaction(ctx, txid, true)
+				if err == nil && txData != nil {
+					block.Miner = s.extractMinerFromTx(txData)
+				}
+			}
+		}
+
+		blocks = append(blocks, block)
+	}
+
+	return blocks, nil
 }
 
 // handleBlock returns block details
@@ -1036,28 +1120,59 @@ func (s *Server) enrichWithBCMR(ctx context.Context, tx *types.Transaction) {
 }
 
 // extractMinerFromTx extracts pool name from coinbase transaction
-func extractMinerFromTx(txData map[string]interface{}) string {
+func (s *Server) extractMinerFromTx(txData map[string]interface{}) string {
+	// First: Extract from coinbase and match against known pool tags
 	vinRaw, ok := txData["vin"]
-	if !ok {
-		return ""
+	if ok {
+		if vin, ok := vinRaw.([]interface{}); ok && len(vin) > 0 {
+			if firstIn, ok := vin[0].(map[string]interface{}); ok {
+				if coinbase, ok := firstIn["coinbase"].(string); ok && len(coinbase) > 0 {
+					// Decode coinbase hex to text
+					decoded, err := hex.DecodeString(coinbase)
+					if err == nil {
+						// Convert to printable ASCII
+						var result []byte
+						for _, b := range decoded {
+							if b >= 0x20 && b <= 0x7E {
+								result = append(result, b)
+							} else {
+								result = append(result, ' ')
+							}
+						}
+						coinbaseText := string(result)
+
+						log.Printf("[MINER DEBUG] coinbase text: %.100s", coinbaseText)
+
+						// Match against known pool tags (case-insensitive)
+						coinbaseLower := strings.ToLower(coinbaseText)
+						for _, pool := range s.pools.Pools {
+							for _, tag := range pool.Tags {
+								if strings.Contains(coinbaseLower, strings.ToLower(tag)) {
+									log.Printf("[MINER DEBUG] Matched pool: %s via tag: %s", pool.Name, tag)
+									return pool.Name
+								}
+							}
+						}
+
+						// Fallback: Extract text between slashes (like /K1Pool.com/ → K1Pool.com)
+						// This is what bch-rpc-explorer does
+						if idx := strings.Index(coinbaseText, "/"); idx != -1 {
+							endIdx := strings.Index(coinbaseText[idx+1:], "/")
+							if endIdx != -1 {
+								possibleSignal := strings.TrimSpace(coinbaseText[idx+1 : idx+1+endIdx])
+								if len(possibleSignal) >= 3 && len(possibleSignal) <= 50 {
+									log.Printf("[MINER DEBUG] Using possibleSignal: %s", possibleSignal)
+									return possibleSignal
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
-	vin, ok := vinRaw.([]interface{})
-	if !ok || len(vin) == 0 {
-		return ""
-	}
-
-	firstIn, ok := vin[0].(map[string]interface{})
-	if !ok {
-		return ""
-	}
-
-	coinbase, ok := firstIn["coinbase"].(string)
-	if !ok || len(coinbase) == 0 {
-		return ""
-	}
-
-	return extractMinerFromCoinbaseHex(coinbase)
+	return "Unknown"
 }
 
 // Common mining pool identifiers

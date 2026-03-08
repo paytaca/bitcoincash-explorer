@@ -90,6 +90,23 @@ func (c *Client) GetBlocks(ctx context.Context, limit int64) ([]*types.Block, er
 	return blocks, nil
 }
 
+// SetBlocks replaces the cached blocks list with the provided blocks (latest first)
+func (c *Client) SetBlocks(ctx context.Context, blocks []*types.Block) error {
+	pipe := c.client.Pipeline()
+	key := c.key("blocks:latest")
+	pipe.Del(ctx, key)
+	for i := len(blocks) - 1; i >= 0; i-- {
+		data, err := json.Marshal(blocks[i])
+		if err != nil {
+			continue
+		}
+		pipe.LPush(ctx, key, data)
+	}
+	pipe.LTrim(ctx, key, 0, 14)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 // GetLatestBlock returns the most recent block
 func (c *Client) GetLatestBlock(ctx context.Context) (*types.Block, error) {
 	data, err := c.client.LIndex(ctx, c.key("blocks:latest"), 0).Result()
