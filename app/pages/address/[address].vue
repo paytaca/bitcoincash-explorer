@@ -729,6 +729,14 @@ html.dark .dirBadge.isReceived {
   color: var(--color-error);
 }
 @media (max-width: 640px) {
+  .pageHead {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .addressToggle {
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
   .txTable th:nth-child(4),
   .txTable td.timeCell {
     display: none;

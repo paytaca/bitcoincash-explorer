@@ -466,22 +466,6 @@ func (s *Service) extractMiner(txData map[string]interface{}) string {
 		}
 	}
 
-	// Fallback: return payout address
-	if voutRaw, ok := txData["vout"].([]interface{}); ok && len(voutRaw) > 0 {
-		if firstVout, ok := voutRaw[0].(map[string]interface{}); ok {
-			if scriptPubKey, ok := firstVout["scriptPubKey"].(map[string]interface{}); ok {
-				if addr, ok := scriptPubKey["address"].(string); ok {
-					return addr
-				}
-				if addrs, ok := scriptPubKey["addresses"].([]interface{}); ok && len(addrs) > 0 {
-					if addr, ok := addrs[0].(string); ok {
-						return addr
-					}
-				}
-			}
-		}
-	}
-
 	return "Unknown"
 }
 
