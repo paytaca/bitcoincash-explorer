@@ -4,18 +4,14 @@ const siteUrl = (env.NUXT_PUBLIC_SITE_URL || env.SITE_URL || 'https://bchexplore
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
-  // Disable SSR - we use Go API server instead
+  // Disable SSR - Go API server handles all backend
   ssr: false,
-  // Nuxt/Vue devtools can crash SSR in some environments (seen as:
-  // "null is not an object (evaluating 'instance.__vrv_devtools = info')").
-  // Re-enable once your environment is stable.
   devtools: { enabled: false },
   css: ['~/assets/main.css'],
-  
+
   vite: {
     build: {
       // Cloudflare/Safari can intermittently fail fetching some module chunks over HTTP/2
-      // (e.g. filenames ending in `-.js`). Using hex hashes avoids `-`/`_` characters in filenames.
       rollupOptions: {
         output: {
           hashCharacters: 'hex'
@@ -23,7 +19,7 @@ export default defineNuxtConfig({
       }
     }
   },
-  
+
   app: {
     head: {
       title: 'Bitcoin Cash Explorer',
@@ -60,7 +56,6 @@ export default defineNuxtConfig({
         { rel: 'icon', type: 'image/png', href: '/favicon/favicon-96x96.png', sizes: '96x96' },
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon/favicon.svg' },
         { rel: 'shortcut icon', href: '/favicon/favicon.ico' },
-        // Some clients request these at the site root regardless of configured paths.
         { rel: 'apple-touch-icon', href: '/apple-touch-icon.png', sizes: '180x180' },
         { rel: 'apple-touch-icon-precomposed', href: '/apple-touch-icon-precomposed.png', sizes: '180x180' },
         { rel: 'manifest', href: '/favicon/site.webmanifest' }
@@ -69,32 +64,9 @@ export default defineNuxtConfig({
   },
 
   runtimeConfig: {
-    // NOTE: These are runtime-config values and should be provided via environment
-    // variables at runtime (e.g. Docker/Compose). Nuxt maps these from:
-    // - NUXT_BCH_RPC_URL / NUXT_BCH_RPC_USER / NUXT_BCH_RPC_PASS
-    bchRpcUrl: '',
-    bchRpcUser: '',
-    bchRpcPass: '',
-
-    // - NUXT_BCMR_BASE_URL
-    bcmrBaseUrl: 'https://bcmr.paytaca.com',
-
-    // Fulcrum (Electrum server)
-    // - NUXT_FULCRUM_HOST / NUXT_FULCRUM_PORT / NUXT_FULCRUM_TIMEOUT_MS
-    fulcrumHost: '127.0.0.1',
-    fulcrumPort: 60001,
-    fulcrumTimeoutMs: 10_000,
-
-    // Redis cache (for ZMQ-based data)
-    // - NUXT_REDIS_URL or REDIS_URL
-    redisUrl: '',
-
     public: {
-      // - NUXT_PUBLIC_CHAIN
       chain: 'mainnet',
-      // - NUXT_PUBLIC_MAINNET_URL
       mainnetUrl: '',
-      // - NUXT_PUBLIC_CHIPNET_URL
       chipnetUrl: ''
     }
   },
@@ -102,11 +74,6 @@ export default defineNuxtConfig({
   nitro: {
     output: {
       publicDir: '.output/public'
-    },
-    storage: {
-      // Note: API routes now use Redis directly via ioredis.
-      // The cachedData mount is kept as a fallback for any legacy code.
-      cachedData: { driver: 'fs', base: './.cache/nitro' }
     }
   }
 })

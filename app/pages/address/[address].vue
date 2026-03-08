@@ -217,7 +217,14 @@ const route = useRoute()
 const address = String(route.params.address || '')
 
 const addressMode = useAddressDisplayMode()
-const stableNow = useStableNow()
+const stableNow = ref(Date.now())
+
+onMounted(() => {
+  const timer = setInterval(() => {
+    stableNow.value = Date.now()
+  }, 30000)
+  onUnmounted(() => clearInterval(timer))
+})
 
 const showQr = ref(false)
 const qrCanvas = ref<HTMLCanvasElement | null>(null)
@@ -248,7 +255,7 @@ watch([showQr, displayAddress], async ([isShowing]) => {
   }
 })
 
-const locale = usePageLocale()
+const locale = ref(navigator.language || 'en-US')
 
 const { data, pending, error } = await useFetch<AddressTxResponse>(
   () => {

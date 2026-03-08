@@ -282,7 +282,7 @@ const highlightOutput = computed<number | null>(() => {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null
 })
 
-const locale = usePageLocale()
+const locale = ref(navigator.language || 'en-US')
 
 const addressMode = useAddressDisplayMode()
 

@@ -1,10 +1,8 @@
 import type { AddressDisplayMode } from '~/utils/addressFormat'
 
 /**
- * SSR-safe address display mode ("cash" vs "token").
- *
- * Using a cookie (instead of localStorage) keeps SSR and client hydration in sync,
- * and works reliably in production deployments behind caches/CDNs.
+ * Address display mode persistence ("cash" vs "token").
+ * Uses cookies for persistence across sessions.
  */
 export function useAddressDisplayMode() {
   const raw = useCookie<AddressDisplayMode | string>('bchexplorer_addressMode', {
@@ -23,4 +21,3 @@ export function useAddressDisplayMode() {
 
   return mode
 }
-

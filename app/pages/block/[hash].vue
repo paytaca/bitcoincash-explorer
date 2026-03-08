@@ -53,7 +53,7 @@
 <script setup lang="ts">
 const route = useRoute()
 const hash = String(route.params.hash)
-const locale = usePageLocale()
+const locale = ref(navigator.language || 'en-US')
 
 const { data: block, pending, error } = await useFetch<any>(`/api/bch/block/${hash}`)
 

@@ -130,7 +130,6 @@ const fallbackTimestamp = computed(() =>
 )
 
 const clientLocaleDate = computed(() => {
-  if (typeof navigator === 'undefined') return ''
   return new Date().toLocaleString(navigator.language, {
     year: 'numeric',
     month: 'short',
@@ -142,8 +141,15 @@ const clientLocaleDate = computed(() => {
   })
 })
 
-const locale = usePageLocale()
-const stableNow = useStableNow()
+const locale = ref(navigator.language || 'en-US')
+const stableNow = ref(Date.now())
+
+onMounted(() => {
+  const timer = setInterval(() => {
+    stableNow.value = Date.now()
+  }, 30000)
+  onUnmounted(() => clearInterval(timer))
+})
 
 const {
   data: recentTxs,

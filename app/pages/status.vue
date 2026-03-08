@@ -173,7 +173,7 @@ type StatusResponse = {
   }
 }
 
-const locale = usePageLocale()
+const locale = ref(navigator.language || 'en-US')
 
 const { data, pending, error } = await useFetch<StatusResponse>('/api/status')
 
