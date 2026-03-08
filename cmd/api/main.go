@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -227,60 +229,205 @@ func (s *Server) setupRoutes() {
 	})
 }
 
+// StatusResponse matches the frontend's expected format
+type StatusResponse struct {
+	GeneratedAt int64            `json:"generatedAt"`
+	Node        NodeStatus       `json:"node"`
+	Fulcrum     FulcrumStatus    `json:"fulcrum"`
+	Comparison  ComparisonStatus `json:"comparison"`
+}
+
+type NodeStatus struct {
+	Ok                   bool    `json:"ok"`
+	Error                string  `json:"error,omitempty"`
+	LatencyMs            int64   `json:"latencyMs,omitempty"`
+	Chain                string  `json:"chain,omitempty"`
+	Blocks               int64   `json:"blocks,omitempty"`
+	Headers              int64   `json:"headers,omitempty"`
+	Bestblockhash        string  `json:"bestblockhash,omitempty"`
+	Difficulty           float64 `json:"difficulty,omitempty"`
+	Verificationprogress float64 `json:"verificationprogress,omitempty"`
+	Initialblockdownload bool    `json:"initialblockdownload,omitempty"`
+	Mediantime           int64   `json:"mediantime,omitempty"`
+	Warnings             string  `json:"warnings,omitempty"`
+	Version              int64   `json:"version,omitempty"`
+	Subversion           string  `json:"subversion,omitempty"`
+	Connections          int64   `json:"connections,omitempty"`
+	BestBlockTime        int64   `json:"bestBlockTime,omitempty"`
+}
+
+type FulcrumStatus struct {
+	Ok         bool        `json:"ok"`
+	Error      string      `json:"error,omitempty"`
+	LatencyMs  int64       `json:"latencyMs,omitempty"`
+	Host       string      `json:"host,omitempty"`
+	Port       int         `json:"port,omitempty"`
+	Version    interface{} `json:"version,omitempty"`
+	Banner     interface{} `json:"banner,omitempty"`
+	Height     int64       `json:"height,omitempty"`
+	HeaderTime int64       `json:"headerTime,omitempty"`
+}
+
+type ComparisonStatus struct {
+	HeightDiff      int64 `json:"heightDiff,omitempty"`
+	TimeDiffSeconds int64 `json:"timeDiffSeconds,omitempty"`
+	InSync          bool  `json:"inSync"`
+}
+
+// headerTimeFromHex extracts timestamp from block header hex (80 byte header, timestamp at offset 68)
+func headerTimeFromHex(headerHex string) int64 {
+	if len(headerHex) < 160 {
+		return 0
+	}
+	// Timestamp is 4 bytes LE at offset 68 (136 hex chars)
+	tsBytes := headerHex[136:144]
+	// Parse as little-endian uint32
+	b, _ := hex.DecodeString(tsBytes)
+	if len(b) != 4 {
+		return 0
+	}
+	return int64(uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24)
+}
+
 // handleStatus returns node status
 func (s *Server) handleStatus(c *gin.Context) {
 	ctx := c.Request.Context()
-	status := types.NodeStatus{}
+	generatedAt := time.Now().Unix()
 
-	// Check Redis
-	if err := s.redis.Ping(ctx); err == nil {
-		status.Redis.Connected = true
-		if latest, err := s.redis.GetLatestBlock(ctx); err == nil && latest != nil {
-			status.Redis.LatestBlock = latest.Height
-		}
-	}
+	node := NodeStatus{Ok: false}
+	fulcrum := FulcrumStatus{Ok: false, Host: s.config.FulcrumHost, Port: s.config.FulcrumPort}
 
 	// Check BCH node
 	if s.rpc != nil {
-		info, err := s.rpc.GetBlockchainInfo(ctx)
-		if err == nil && info != nil {
-			status.Node.Connected = true
-			if h, ok := info["blocks"].(float64); ok {
-				status.Node.BlockHeight = int64(h)
-			}
-			if h, ok := info["headers"].(float64); ok {
-				status.Node.Headers = int64(h)
-			}
-			if d, ok := info["difficulty"].(float64); ok {
-				status.Node.Difficulty = d
-			}
-			if v, ok := info["version"].(float64); ok {
-				status.Node.Version = int(v)
-			}
-		}
+		t0 := time.Now()
+		chainInfo, err := s.rpc.GetBlockchainInfo(ctx)
+		if err == nil && chainInfo != nil {
+			netInfo, _ := s.rpc.GetNetworkInfo(ctx)
 
-		network, _ := s.rpc.GetNetworkInfo(ctx)
-		if network != nil {
-			if p, ok := network["protocolversion"].(float64); ok {
-				status.Node.ProtocolVersion = int(p)
+			node.LatencyMs = time.Since(t0).Milliseconds()
+			node.Ok = true
+
+			if v, ok := chainInfo["chain"].(string); ok {
+				node.Chain = v
 			}
+			if v, ok := chainInfo["blocks"].(float64); ok {
+				node.Blocks = int64(v)
+			}
+			if v, ok := chainInfo["headers"].(float64); ok {
+				node.Headers = int64(v)
+			}
+			if v, ok := chainInfo["bestblockhash"].(string); ok {
+				node.Bestblockhash = v
+			}
+			if v, ok := chainInfo["difficulty"].(float64); ok {
+				node.Difficulty = v
+			}
+			if v, ok := chainInfo["verificationprogress"].(float64); ok {
+				node.Verificationprogress = v
+			}
+			if v, ok := chainInfo["initialblockdownload"].(bool); ok {
+				node.Initialblockdownload = v
+			}
+			if v, ok := chainInfo["mediantime"].(float64); ok {
+				node.Mediantime = int64(v)
+			}
+			if v, ok := chainInfo["warnings"].(string); ok {
+				node.Warnings = v
+			}
+			if netInfo != nil {
+				if v, ok := netInfo["version"].(float64); ok {
+					node.Version = int64(v)
+				}
+				if v, ok := netInfo["subversion"].(string); ok {
+					node.Subversion = v
+				}
+				if v, ok := netInfo["connections"].(float64); ok {
+					node.Connections = int64(v)
+				}
+			}
+
+			// Get best block time
+			if node.Bestblockhash != "" {
+				if block, err := s.rpc.GetBlock(ctx, node.Bestblockhash, 1); err == nil {
+					if v, ok := block["time"].(float64); ok {
+						node.BestBlockTime = int64(v)
+					}
+				}
+			}
+		} else {
+			node.Error = err.Error()
 		}
+	} else {
+		node.Error = "RPC not configured"
 	}
 
 	// Check Fulcrum
+	t0 := time.Now()
 	if s.fulcrum != nil {
-		// Try to get server version to check connection
-		_, err := s.fulcrum.ServerVersion(ctx)
-		if err == nil {
-			status.Fulcrum.Connected = true
-			status.Fulcrum.BlockHeight = status.Node.BlockHeight
+		// Get tip via headers.subscribe
+		var tip map[string]interface{}
+		err := s.fulcrum.Request(ctx, "blockchain.headers.subscribe", []interface{}{}, &tip)
+		if err == nil && tip != nil {
+			if v, ok := tip["height"].(float64); ok {
+				fulcrum.Height = int64(v)
+			}
+
+			// Get version
+			var version []interface{}
+			if err := s.fulcrum.Request(ctx, "server.version", []interface{}{"bchexplorer", "1.4"}, &version); err == nil {
+				fulcrum.Version = version
+			}
+
+			// Get banner
+			var banner string
+			if err := s.fulcrum.Request(ctx, "server.banner", []interface{}{}, &banner); err == nil {
+				fulcrum.Banner = banner
+			}
+
+			// Get header time
+			if fulcrum.Height > 0 {
+				var headerHex string
+				if err := s.fulcrum.Request(ctx, "blockchain.block.header", []interface{}{fulcrum.Height}, &headerHex); err == nil {
+					fulcrum.HeaderTime = headerTimeFromHex(headerHex)
+				}
+			}
+
+			fulcrum.LatencyMs = time.Since(t0).Milliseconds()
+			fulcrum.Ok = true
+		} else {
+			if err != nil {
+				fulcrum.Error = err.Error()
+			} else {
+				fulcrum.Error = "No response"
+			}
 		}
+	} else {
+		fulcrum.Error = "Fulcrum not configured"
 	}
 
-	// Check sync status
-	status.InSync = status.Node.Connected && status.Node.BlockHeight >= status.Node.Headers-2
+	// Calculate comparison
+	var heightDiff, timeDiff int64
+	if node.Blocks > 0 && fulcrum.Height > 0 {
+		heightDiff = node.Blocks - fulcrum.Height
+	}
+	if node.BestBlockTime > 0 && fulcrum.HeaderTime > 0 {
+		timeDiff = node.BestBlockTime - fulcrum.HeaderTime
+	}
 
-	c.JSON(http.StatusOK, status)
+	inSync := node.Ok && fulcrum.Ok && heightDiff >= 0 && heightDiff <= 1
+
+	response := StatusResponse{
+		GeneratedAt: generatedAt,
+		Node:        node,
+		Fulcrum:     fulcrum,
+		Comparison: ComparisonStatus{
+			HeightDiff:      heightDiff,
+			TimeDiffSeconds: timeDiff,
+			InSync:          inSync,
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // handleBlockCount returns current block count
@@ -314,11 +461,24 @@ func (s *Server) handleLatestBlocks(c *gin.Context) {
 	// Try Redis first
 	blocks, err := s.redis.GetBlocks(ctx, 15)
 	if err == nil && len(blocks) > 0 {
+		// Log miner data for debugging
+		for i, b := range blocks {
+			if b.Miner != "" {
+				log.Printf("[API] Block %d (height %d) from Redis has miner: %s", i, b.Height, b.Miner)
+			} else {
+				log.Printf("[API] Block %d (height %d) from Redis has NO miner", i, b.Height)
+			}
+		}
 		c.JSON(http.StatusOK, blocks)
 		return
 	}
 
+	if err != nil {
+		log.Printf("[API] Redis GetBlocks error: %v", err)
+	}
+
 	// Fall back to RPC
+	log.Printf("[API] Falling back to RPC for blocks")
 	if s.rpc != nil {
 		count, err := s.rpc.GetBlockCount(ctx)
 		if err != nil {
@@ -350,6 +510,16 @@ func (s *Server) handleLatestBlocks(c *gin.Context) {
 			}
 			if nTx, ok := blockData["nTx"].(float64); ok {
 				block.TxCount = int(nTx)
+			}
+
+			// Extract miner from coinbase transaction
+			if txs, ok := blockData["tx"].([]interface{}); ok && len(txs) > 0 {
+				if txid, ok := txs[0].(string); ok {
+					txData, err := s.rpc.GetRawTransaction(ctx, txid, true)
+					if err == nil && txData != nil {
+						block.Miner = extractMinerFromTx(txData)
+					}
+				}
 			}
 
 			blocks = append(blocks, block)
@@ -772,6 +942,238 @@ func (s *Server) enrichWithBCMR(ctx context.Context, tx *types.Transaction) {
 			}
 		}
 	}
+}
+
+// extractMinerFromTx extracts pool name from coinbase transaction
+func extractMinerFromTx(txData map[string]interface{}) string {
+	vinRaw, ok := txData["vin"]
+	if !ok {
+		return ""
+	}
+
+	vin, ok := vinRaw.([]interface{})
+	if !ok || len(vin) == 0 {
+		return ""
+	}
+
+	firstIn, ok := vin[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	coinbase, ok := firstIn["coinbase"].(string)
+	if !ok || len(coinbase) == 0 {
+		return ""
+	}
+
+	return extractMinerFromCoinbaseHex(coinbase)
+}
+
+// Common mining pool identifiers
+var commonPools = []string{
+	"ViaBTC", "AntPool", "BTC.com", "Poolin", "F2Pool", "Binance", "SlushPool",
+	"EMCD", "Foundry", "Luxor", "SBI", "MARA", "HUT", "Catpool", "Rawpool",
+}
+
+// extractMinerFromCoinbaseHex extracts pool name from coinbase hex
+func extractMinerFromCoinbaseHex(coinbaseHex string) string {
+	if len(coinbaseHex) == 0 || len(coinbaseHex)%2 != 0 {
+		return ""
+	}
+
+	decoded, err := hex.DecodeString(coinbaseHex)
+	if err != nil {
+		return ""
+	}
+
+	// Convert to printable ASCII
+	var result []byte
+	for _, b := range decoded {
+		if b >= 0x20 && b <= 0x7E {
+			result = append(result, b)
+		} else {
+			result = append(result, ' ')
+		}
+	}
+
+	cleaned := normalizeWhitespace(string(result))
+	if cleaned == "" {
+		return ""
+	}
+
+	// Strategy 1: Look for /poolname/ pattern
+	if pool := extractSlashDelimitedTag(cleaned); pool != "" {
+		return pool
+	}
+
+	// Strategy 2: Look for "mined by" or "pool" keywords
+	if pool := extractFromKeywords(cleaned); pool != "" {
+		return pool
+	}
+
+	// Strategy 3: Look for known pool names
+	if pool := extractKnownPool(cleaned); pool != "" {
+		return pool
+	}
+
+	// Strategy 4: Extract longest reasonable alphanumeric sequence
+	if pool := extractLongestValidSequence(cleaned); pool != "" {
+		return pool
+	}
+
+	return ""
+}
+
+// normalizeWhitespace replaces multiple spaces with single space and trims
+func normalizeWhitespace(s string) string {
+	var result []rune
+	inSpace := false
+	for _, r := range s {
+		if r == ' ' {
+			if !inSpace {
+				result = append(result, r)
+				inSpace = true
+			}
+		} else {
+			result = append(result, r)
+			inSpace = false
+		}
+	}
+	// Trim leading/trailing spaces
+	start := 0
+	end := len(result)
+	for start < end && result[start] == ' ' {
+		start++
+	}
+	for end > start && result[end-1] == ' ' {
+		end--
+	}
+	return string(result[start:end])
+}
+
+// extractSlashDelimitedTag extracts pool name from slash-delimited pattern
+func extractSlashDelimitedTag(s string) string {
+	parts := splitBySlash(s)
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "" {
+			tag := strings.TrimRight(parts[i+1], " ")
+			if len(tag) > 0 && len(tag) <= 40 && isValidPoolNameStart(tag[0]) {
+				if isValidPoolName(tag) {
+					return strings.TrimSpace(tag)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// splitBySlash splits string by "/" preserving empty strings for consecutive slashes
+func splitBySlash(s string) []string {
+	var parts []string
+	current := ""
+	for _, r := range s {
+		if r == '/' {
+			parts = append(parts, current)
+			current = ""
+		} else {
+			current += string(r)
+		}
+	}
+	parts = append(parts, current)
+	return parts
+}
+
+// isValidPoolNameStart checks if character is valid start of pool name
+func isValidPoolNameStart(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+}
+
+// isValidPoolName checks if string is valid pool name
+func isValidPoolName(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == ' ' || c == '.' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// extractFromKeywords looks for pool names after common keywords
+func extractFromKeywords(s string) string {
+	lower := strings.ToLower(s)
+	keywords := []string{"mined by", "pool", "mining"}
+
+	for _, kw := range keywords {
+		idx := strings.Index(lower, kw)
+		if idx != -1 {
+			start := idx + len(kw)
+			if start < len(s) {
+				for start < len(s) && s[start] == ' ' {
+					start++
+				}
+				end := start
+				for end < len(s) && end < start+30 {
+					c := s[end]
+					if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+						c == ' ' || c == '.' || c == '_' || c == '-' {
+						end++
+					} else {
+						break
+					}
+				}
+				if end > start {
+					return strings.TrimSpace(s[start:end])
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractKnownPool looks for known pool names
+func extractKnownPool(s string) string {
+	for _, pool := range commonPools {
+		if strings.Contains(s, pool) {
+			return pool
+		}
+		if strings.Contains(strings.ToLower(s), strings.ToLower(pool)) {
+			return pool
+		}
+	}
+	return ""
+}
+
+// extractLongestValidSequence extracts longest alphanumeric sequence
+func extractLongestValidSequence(s string) string {
+	var longest string
+	var current string
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			current += string(c)
+		} else if c == ' ' {
+			if len(current) > len(longest) && len(current) >= 3 {
+				longest = current
+			}
+			current = ""
+		} else {
+			current = ""
+		}
+	}
+	if len(current) > len(longest) && len(current) >= 3 {
+		longest = current
+	}
+
+	if len(longest) >= 3 && len(longest) <= 20 {
+		first := longest[0]
+		if (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') {
+			return longest
+		}
+	}
+	return ""
 }
 
 func contains(s, substr string) bool {

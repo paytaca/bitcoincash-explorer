@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -323,10 +324,19 @@ func (s *Service) parseBlock(data map[string]interface{}) *types.Block {
 	if txs, ok := data["tx"].([]interface{}); ok {
 		block.Tx = make([]string, 0, len(txs))
 		for _, tx := range txs {
-			if txid, ok := tx.(string); ok {
-				block.Tx = append(block.Tx, txid)
+			// With verbosity 2, tx is an object; with verbosity 1, it's a string
+			switch v := tx.(type) {
+			case string:
+				block.Tx = append(block.Tx, v)
+			case map[string]interface{}:
+				if txid, ok := v["txid"].(string); ok {
+					block.Tx = append(block.Tx, txid)
+				}
 			}
 		}
+		log.Printf("Parsed %d txids from block %d", len(block.Tx), block.Height)
+	} else {
+		log.Printf("No tx field in block data or wrong type: %T", data["tx"])
 	}
 
 	// Extract miner from coinbase
@@ -334,10 +344,15 @@ func (s *Service) parseBlock(data map[string]interface{}) *types.Block {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		txData, _ := s.rpc.GetRawTransaction(ctx, block.Tx[0], true)
-		if txData != nil {
+		txData, err := s.rpc.GetRawTransaction(ctx, block.Tx[0], true)
+		if err != nil {
+			log.Printf("Failed to get coinbase tx %s for block %d: %v", block.Tx[0], block.Height, err)
+		} else if txData != nil {
 			block.Miner = s.extractMiner(txData)
+			log.Printf("Extracted miner for block %d: '%s'", block.Height, block.Miner)
 		}
+	} else {
+		log.Printf("No transactions found in block %d, cannot extract miner", block.Height)
 	}
 
 	return block
@@ -345,15 +360,283 @@ func (s *Service) parseBlock(data map[string]interface{}) *types.Block {
 
 // extractMiner extracts pool name from coinbase
 func (s *Service) extractMiner(txData map[string]interface{}) string {
-	if vin, ok := txData["vin"].([]interface{}); ok && len(vin) > 0 {
-		if firstIn, ok := vin[0].(map[string]interface{}); ok {
-			if coinbase, ok := firstIn["coinbase"].(string); ok && len(coinbase) > 0 {
-				// Try to extract pool name from coinbase
-				decoded, _ := hex.DecodeString(coinbase)
-				if len(decoded) > 0 {
-					return string(decoded)
+	vinRaw, ok := txData["vin"]
+	if !ok {
+		log.Printf("No vin field in tx data")
+		return ""
+	}
+
+	vin, ok := vinRaw.([]interface{})
+	if !ok {
+		log.Printf("vin is not an array: %T", vinRaw)
+		return ""
+	}
+
+	if len(vin) == 0 {
+		log.Printf("vin array is empty")
+		return ""
+	}
+
+	firstIn, ok := vin[0].(map[string]interface{})
+	if !ok {
+		log.Printf("First vin entry is not a map: %T", vin[0])
+		return ""
+	}
+
+	coinbase, ok := firstIn["coinbase"].(string)
+	if !ok {
+		log.Printf("No coinbase field in first vin: available keys: %v", getMapKeys(firstIn))
+		return ""
+	}
+
+	if len(coinbase) == 0 {
+		log.Printf("Coinbase is empty")
+		return ""
+	}
+
+	log.Printf("Extracting miner from coinbase hex (length: %d)", len(coinbase))
+	miner := extractMinerFromCoinbaseHex(coinbase)
+	log.Printf("Extraction result: %s", miner)
+	return miner
+}
+
+// getMapKeys returns the keys of a map for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// Common mining pool identifiers
+var commonPools = []string{
+	"ViaBTC", "AntPool", "BTC.com", "Poolin", "F2Pool", "Binance", "SlushPool",
+	"EMCD", "Foundry", "Luxor", "SBI", "MARA", "HUT", "Catpool", "Rawpool",
+}
+
+// extractMinerFromCoinbaseHex extracts pool name from coinbase hex
+func extractMinerFromCoinbaseHex(coinbaseHex string) string {
+	if len(coinbaseHex) == 0 {
+		return ""
+	}
+
+	// Quick hex validation - just check even length and valid chars
+	if len(coinbaseHex)%2 != 0 {
+		return ""
+	}
+
+	decoded, err := hex.DecodeString(coinbaseHex)
+	if err != nil {
+		return ""
+	}
+
+	// Convert to printable ASCII, replace non-printable/null with space
+	var result []byte
+	for _, b := range decoded {
+		if b >= 0x20 && b <= 0x7E {
+			result = append(result, b)
+		} else {
+			result = append(result, ' ')
+		}
+	}
+
+	cleaned := normalizeWhitespace(string(result))
+	if cleaned == "" {
+		log.Printf("Cleaned coinbase is empty")
+		return ""
+	}
+
+	log.Printf("Cleaned coinbase (first 200 chars): %.200s", cleaned)
+
+	// Try multiple extraction strategies in order of preference
+
+	// Strategy 1: Look for /poolname/ pattern
+	if pool := extractSlashDelimitedTag(cleaned); pool != "" {
+		log.Printf("Found pool via slash pattern: %s", pool)
+		return pool
+	}
+
+	// Strategy 2: Look for "mined by" or "pool" keywords
+	if pool := extractFromKeywords(cleaned); pool != "" {
+		log.Printf("Found pool via keywords: %s", pool)
+		return pool
+	}
+
+	// Strategy 3: Look for known pool names
+	if pool := extractKnownPool(cleaned); pool != "" {
+		log.Printf("Found known pool: %s", pool)
+		return pool
+	}
+
+	// Strategy 4: Extract longest reasonable alphanumeric sequence
+	if pool := extractLongestValidSequence(cleaned); pool != "" {
+		log.Printf("Found pool via longest sequence: %s", pool)
+		return pool
+	}
+
+	log.Printf("No pool found in coinbase")
+	return ""
+}
+
+// normalizeWhitespace replaces multiple spaces with single space and trims
+func normalizeWhitespace(s string) string {
+	var result []rune
+	inSpace := false
+	for _, r := range s {
+		if r == ' ' {
+			if !inSpace {
+				result = append(result, r)
+				inSpace = true
+			}
+		} else {
+			result = append(result, r)
+			inSpace = false
+		}
+	}
+	// Trim leading/trailing spaces
+	start := 0
+	end := len(result)
+	for start < end && result[start] == ' ' {
+		start++
+	}
+	for end > start && result[end-1] == ' ' {
+		end--
+	}
+	return string(result[start:end])
+}
+
+// extractSlashDelimitedTag extracts pool name from slash-delimited pattern like /poolname/
+func extractSlashDelimitedTag(s string) string {
+	// Look for pattern: /poolname/ where poolname starts with alphanumeric
+	// and can contain alphanumeric, spaces, dots, underscores, hyphens (up to 40 chars)
+	parts := splitBySlash(s)
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "" {
+			// Found a "/tag/" pattern - next part is the tag
+			tag := parts[i+1]
+			// Trim trailing spaces
+			tag = strings.TrimRight(tag, " ")
+			// Validate: must start with alphanumeric and be reasonable length
+			if len(tag) > 0 && len(tag) <= 40 && isValidPoolNameStart(tag[0]) {
+				// Check remaining characters
+				if isValidPoolName(tag) {
+					return strings.TrimSpace(tag)
 				}
 			}
+		}
+	}
+	return ""
+}
+
+// splitBySlash splits string by "/" while preserving empty strings for consecutive slashes
+func splitBySlash(s string) []string {
+	var parts []string
+	current := ""
+	for _, r := range s {
+		if r == '/' {
+			parts = append(parts, current)
+			current = ""
+		} else {
+			current += string(r)
+		}
+	}
+	parts = append(parts, current)
+	return parts
+}
+
+// isValidPoolNameStart checks if character is valid start of pool name
+func isValidPoolNameStart(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+}
+
+// isValidPoolName checks if string is valid pool name (alphanumeric, space, dot, underscore, hyphen)
+func isValidPoolName(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == ' ' || c == '.' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// extractFromKeywords looks for pool names after common keywords like "mined by"
+func extractFromKeywords(s string) string {
+	lower := strings.ToLower(s)
+	keywords := []string{"mined by", "pool", "mining"}
+
+	for _, kw := range keywords {
+		idx := strings.Index(lower, kw)
+		if idx != -1 {
+			// Extract up to 30 chars after keyword
+			start := idx + len(kw)
+			if start < len(s) {
+				// Skip spaces
+				for start < len(s) && s[start] == ' ' {
+					start++
+				}
+				end := start
+				for end < len(s) && end < start+30 {
+					c := s[end]
+					if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+						c == ' ' || c == '.' || c == '_' || c == '-' {
+						end++
+					} else {
+						break
+					}
+				}
+				if end > start {
+					return strings.TrimSpace(s[start:end])
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractKnownPool looks for known pool names in the string
+func extractKnownPool(s string) string {
+	for _, pool := range commonPools {
+		if strings.Contains(s, pool) {
+			return pool
+		}
+		// Also try lowercase match
+		if strings.Contains(strings.ToLower(s), strings.ToLower(pool)) {
+			return pool
+		}
+	}
+	return ""
+}
+
+// extractLongestValidSequence extracts the longest alphanumeric sequence as fallback
+func extractLongestValidSequence(s string) string {
+	var longest string
+	var current string
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			current += string(c)
+		} else if c == ' ' {
+			if len(current) > len(longest) && len(current) >= 3 {
+				longest = current
+			}
+			current = ""
+		} else {
+			current = ""
+		}
+	}
+	if len(current) > len(longest) && len(current) >= 3 {
+		longest = current
+	}
+
+	// Only return if it's a reasonable pool name (3-20 chars, starts with letter)
+	if len(longest) >= 3 && len(longest) <= 20 {
+		first := longest[0]
+		if (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') {
+			return longest
 		}
 	}
 	return ""

@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"bchexplorer/internal/types"
+	"github.com/redis/go-redis/v9"
 )
 
 // Client wraps go-redis with BCH-specific data structures
@@ -28,17 +29,17 @@ func NewClient(cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
 	}
-	
+
 	client := redis.NewClient(opt)
-	
+
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
-	
+
 	return &Client{
 		client: client,
 		prefix: cfg.Prefix,
@@ -59,7 +60,9 @@ func (c *Client) PushBlock(ctx context.Context, block *types.Block) error {
 	if err != nil {
 		return err
 	}
-	
+
+	log.Printf("[Redis] Pushing block height=%d miner=%s", block.Height, block.Miner)
+
 	pipe := c.client.Pipeline()
 	pipe.LPush(ctx, c.key("blocks:latest"), data)
 	pipe.LTrim(ctx, c.key("blocks:latest"), 0, 14) // Keep last 15
@@ -73,16 +76,17 @@ func (c *Client) GetBlocks(ctx context.Context, limit int64) ([]*types.Block, er
 	if err != nil {
 		return nil, err
 	}
-	
+
 	blocks := make([]*types.Block, 0, len(data))
 	for _, d := range data {
 		var block types.Block
 		if err := json.Unmarshal([]byte(d), &block); err != nil {
 			continue
 		}
+		log.Printf("[Redis] Retrieved block height=%d miner=%s", block.Height, block.Miner)
 		blocks = append(blocks, &block)
 	}
-	
+
 	return blocks, nil
 }
 
@@ -95,12 +99,12 @@ func (c *Client) GetLatestBlock(ctx context.Context) (*types.Block, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var block types.Block
 	if err := json.Unmarshal([]byte(data), &block); err != nil {
 		return nil, err
 	}
-	
+
 	return &block, nil
 }
 
@@ -110,7 +114,7 @@ func (c *Client) RemoveBlock(ctx context.Context, hash string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Remove all blocks up to and including the specified hash
 	found := false
 	for _, block := range blocks {
@@ -120,7 +124,7 @@ func (c *Client) RemoveBlock(ctx context.Context, hash string) error {
 			c.client.LRem(ctx, c.key("blocks:latest"), 0, data)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -130,7 +134,7 @@ func (c *Client) PushTransaction(ctx context.Context, tx *types.Transaction) err
 	if err != nil {
 		return err
 	}
-	
+
 	pipe := c.client.Pipeline()
 	pipe.LPush(ctx, c.key("txs:latest"), data)
 	pipe.LTrim(ctx, c.key("txs:latest"), 0, 19) // Keep last 20
@@ -144,7 +148,7 @@ func (c *Client) GetTransactions(ctx context.Context, limit int64) ([]*types.Tra
 	if err != nil {
 		return nil, err
 	}
-	
+
 	txs := make([]*types.Transaction, 0, len(data))
 	for _, d := range data {
 		var tx types.Transaction
@@ -153,7 +157,7 @@ func (c *Client) GetTransactions(ctx context.Context, limit int64) ([]*types.Tra
 		}
 		txs = append(txs, &tx)
 	}
-	
+
 	return txs, nil
 }
 
@@ -164,20 +168,20 @@ func (c *Client) MarkTransactionConfirmed(ctx context.Context, txid string, bloc
 	if err != nil {
 		return err
 	}
-	
+
 	// Find and update
 	for i, tx := range txs {
 		if tx.Txid == txid {
 			txs[i].Status = "confirmed"
 			txs[i].BlockHeight = blockHeight
-			
+
 			// Update in list
 			data, _ := json.Marshal(txs[i])
 			c.client.LSet(ctx, c.key("txs:latest"), int64(i), data)
 			break
 		}
 	}
-	
+
 	return nil
 }
 
@@ -207,7 +211,7 @@ func (c *Client) StoreFullTransaction(ctx context.Context, txid string, tx *type
 	if err != nil {
 		return err
 	}
-	
+
 	return c.client.Set(ctx, c.key(fmt.Sprintf("tx:%s", txid)), data, 15*time.Minute).Err()
 }
 
@@ -220,12 +224,12 @@ func (c *Client) GetFullTransaction(ctx context.Context, txid string) (*types.Tr
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var tx types.Transaction
 	if err := json.Unmarshal([]byte(data), &tx); err != nil {
 		return nil, err
 	}
-	
+
 	return &tx, nil
 }
 
@@ -240,7 +244,7 @@ func (c *Client) CacheSet(ctx context.Context, key string, value interface{}, tt
 	if err != nil {
 		return err
 	}
-	
+
 	return c.client.Set(ctx, c.key(fmt.Sprintf("cache:%s", key)), data, ttl).Err()
 }
 
@@ -253,11 +257,11 @@ func (c *Client) CacheGet(ctx context.Context, key string, result interface{}) (
 	if err != nil {
 		return false, err
 	}
-	
+
 	if err := json.Unmarshal([]byte(data), result); err != nil {
 		return false, err
 	}
-	
+
 	return true, nil
 }
 
@@ -275,12 +279,12 @@ func (c *Client) GetTokenMetadata(ctx context.Context, category string) (*types.
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var metadata types.TokenMetadata
 	if err := json.Unmarshal([]byte(data), &metadata); err != nil {
 		return nil, err
 	}
-	
+
 	return &metadata, nil
 }
 
@@ -290,7 +294,7 @@ func (c *Client) SetTokenMetadata(ctx context.Context, category string, metadata
 	if err != nil {
 		return err
 	}
-	
+
 	// Cache for 24 hours
 	return c.client.Set(ctx, c.key(fmt.Sprintf("bcmr:%s", category)), data, 24*time.Hour).Err()
 }
