@@ -17,7 +17,7 @@ services:
   zmq-listener:
     build:
       context: .
-      dockerfile: services/zmq-listener/Dockerfile
+      dockerfile: Dockerfile.zmq
     environment:
       BCH_ZMQ_HOST: ${BCH_ZMQ_HOST:-127.0.0.1}
       BCH_ZMQ_PORT: ${BCH_ZMQ_PORT:-28332}

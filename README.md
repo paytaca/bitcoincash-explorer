@@ -1,136 +1,175 @@
-# Bitcoin Cash Explorer (Nuxt)
+# Bitcoin Cash Explorer
 
-Explorer UI backed by:
+A Bitcoin Cash blockchain explorer with Go backend and Nuxt frontend.
 
-- Bitcoin Cash Node JSON-RPC (blocks/transactions + mempool timestamps)
-- Fulcrum (Electrum server) for address indexing (history/balances/tokens)
-- BCMR Indexer API (CashTokens metadata enrichment)
+## Architecture
+
+This project uses a clean separation between backend and frontend:
+
+- **Go Backend** (`cmd/api/`): REST API server handling all blockchain data
+- **Go ZMQ Listener** (`cmd/zmq-listener/`): Processes real-time blocks and transactions
+- **Nuxt Frontend** (`app/`): Static SPA (Single Page Application)
+
+### Backend Services
+
+The Go backend provides:
+
+- `/api/status` - Node health and sync status
+- `/api/bch/blockcount` - Current block height
+- `/api/bch/blocks/latest` - Recent blocks list
+- `/api/bch/block/:hash` - Block details
+- `/api/bch/tx/recent` - Recent transactions (mempool + confirmed)
+- `/api/bch/tx/:txid` - Transaction details
+- `/api/bch/address/:address/txs` - Address history and balances
+- `/api/bch/broadcast` - Broadcast raw transactions
+- `/api/bcmr/token/:category` - CashTokens metadata
+- `/search?q=...` - Search redirect endpoint
+
+### Data Sources
+
+- **Bitcoin Cash Node JSON-RPC**: Blocks, transactions, mempool
+- **Fulcrum (Electrum server)**: Address indexing (history, balances, tokens)
+- **BCMR Indexer API**: CashTokens metadata enrichment
+- **Redis**: Cache for blocks, transactions, and token metadata
 
 ## Setup
 
-1) Ensure Node is available (this repo uses `asdf`):
+### Prerequisites
+
+- Go 1.23+
+- Node.js 20+
+- Redis
+- Bitcoin Cash Node (BCHN)
+- Fulcrum Electrum server
+
+### Environment Configuration
+
+Create an environment file:
 
 ```bash
-asdf install
-node -v
-```
-
-2) Create a `.env.local` file for local development:
-
-```bash
+# For local development
 cp .env.local.example .env.local
-```
 
-Or create `.env.mainnet` / `.env.chipnet` for deployment configurations:
-
-```bash
+# For production deployment
 cp .env.mainnet.example .env.mainnet
 cp .env.chipnet.example .env.chipnet
 ```
 
-3) Install dependencies.
-
-If your global npm cache has permission issues, you can use a local cache:
+Required environment variables:
 
 ```bash
-NPM_CONFIG_CACHE="$PWD/.npm-cache" npm install
+# BCH Node RPC
+BCH_RPC_URL=http://127.0.0.1:8332/
+BCH_RPC_USER=rpcuser
+BCH_RPC_PASS=rpcpass
+
+# Fulcrum (Electrum server)
+FULCRUM_HOST=127.0.0.1
+FULCRUM_PORT=60001
+FULCRUM_TIMEOUT_MS=30000
+
+# Redis
+REDIS_URL=redis://127.0.0.1:6379/0
+REDIS_PREFIX=bch
+
+# BCMR (CashTokens metadata)
+BCMR_BASE_URL=https://bcmr.paytaca.com
+
+# Chain configuration
+PUBLIC_CHAIN=mainnet
 ```
 
-## Run
+## Development
+
+### Build
+
+Build both binaries:
 
 ```bash
-NPM_CONFIG_CACHE="$PWD/.npm-cache" npm run dev
+make build
 ```
 
-Open `http://localhost:3000`.
+This creates:
+- `bin/api` - API server
+- `bin/zmq-listener` - ZMQ listener
 
-## Required services
+### Run Locally
 
-This explorer expects the following services to be reachable from the server process:
+Start Redis:
+```bash
+docker run -d -p 127.0.0.1:6379:6379 redis:7-alpine
+```
 
-### Bitcoin Cash Node (BCHN/bitcoind)
+Run the API server:
+```bash
+make run-api
+# or
+./bin/api
+```
 
-Used for:
+Run the ZMQ listener (in another terminal):
+```bash
+make run-zmq
+# or
+./bin/zmq-listener
+```
 
-- Latest blocks/transactions pages
-- Transaction details
-- Best-effort mempool timestamps (e.g. “seen time”)
+Build and serve the frontend:
+```bash
+npm install
+npm run generate
+npx serve .output/public
+```
 
-Configure via your environment file (`.env.local`, `.env.mainnet`, or `.env.chipnet`):
+## Docker
 
-- `BCH_RPC_URL` (example: `http://127.0.0.1:8332/`)
-- `BCH_RPC_USER`
-- `BCH_RPC_PASS`
-
-### Fulcrum (Electrum server)
-
-Used for **address pages** (history, BCH balance, and token balances). Bitcoin Cash node does not index address history, so Fulcrum is required for `/address/:address`.
-
-Configure via your environment file:
-
-- `FULCRUM_HOST` (example: `127.0.0.1`)
-- `FULCRUM_PORT` (example: `60001`)
-- `FULCRUM_TIMEOUT_MS` (default `10000`)
-
-Fulcrum methods used (typical Fulcrum supports all of these):
-
-- `blockchain.headers.subscribe`
-- `blockchain.scripthash.get_history`
-- `blockchain.scripthash.get_balance`
-- `blockchain.scripthash.get_mempool`
-- `blockchain.scripthash.listunspent` (token UTXO aggregation where supported)
-- `blockchain.transaction.get`
-- `blockchain.block.header`
-- (optional) `server.version`, `server.banner` (shown on `/status`)
-
-### BCMR Indexer
-
-Used to enrich CashTokens balances/details with metadata (name/symbol/decimals).
-
-Configure via your environment file:
-
-- `BCMR_BASE_URL` (default: `https://bcmr.paytaca.com`)
-
-## Docker (port 8000)
-
-Build:
+### Build Images
 
 ```bash
+make docker-build
+# or
+docker-compose build
+```
+
+### Run with Docker Compose
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- Redis on port 6379
+- ZMQ listener (host networking for ZMQ)
+- Web server (API + static files) on port 8000
+
+### Manual Docker Run
+
+```bash
+# Build the image
 docker build -t bch-explorer .
-```
 
-Run (maps container port 8000 → host 8000):
-
-```bash
+# Run API server
 docker run --rm -p 8000:8000 \
   -e BCH_RPC_URL="http://host.docker.internal:8332/" \
   -e BCH_RPC_USER="rpcuser" \
   -e BCH_RPC_PASS="rpcpass" \
   -e FULCRUM_HOST="host.docker.internal" \
   -e FULCRUM_PORT="60001" \
-  -e FULCRUM_TIMEOUT_MS="10000" \
-  -e BCMR_BASE_URL="https://bcmr.paytaca.com" \
+  -e REDIS_URL="redis://host.docker.internal:6379/0" \
   bch-explorer
+
+# Run ZMQ listener
+docker run --rm --network host \
+  -e BCH_ZMQ_HOST="127.0.0.1" \
+  -e BCH_ZMQ_PORT="28332" \
+  -e BCH_RPC_URL="http://127.0.0.1:8332/" \
+  -e REDIS_URL="redis://127.0.0.1:6379/0" \
+  bch-explorer /usr/local/bin/zmq-listener
 ```
 
-Open `http://localhost:8000`.
+## Deployment
 
-## Environment Files
-
-This project uses explicit environment files for different environments:
-
-- **`.env.local`** - Local development (no deployment config needed)
-- **`.env.mainnet`** - Mainnet deployment (includes server config for Fabric)
-- **`.env.chipnet`** - Chipnet deployment (includes server config for Fabric)
-
-Example templates are provided:
-- `.env.local.example`
-- `.env.mainnet.example`  
-- `.env.chipnet.example`
-
-## Deployment with Fabric
-
-Deploy to remote servers using Fabric:
+### Using Make
 
 ```bash
 # Deploy to mainnet
@@ -146,16 +185,45 @@ fab mainnet logs
 
 Requires `SERVER_HOSTNAME` and `SERVER_USER` in your `.env.mainnet` or `.env.chipnet` file.
 
-## Docker Compose
+## Project Structure
 
-`docker-compose.yml` uses `network_mode: "host"` so the container can reach host-local services bound to `127.0.0.1` (e.g. `bitcoind` RPC and Fulcrum on the same machine). In this mode, `FULCRUM_HOST=127.0.0.1` and `BCH_RPC_URL=http://127.0.0.1:8332/` work as expected.
+```
+.
+├── app/                    # Nuxt frontend (SPA)
+│   ├── components/         # Vue components
+│   ├── composables/        # Vue composables
+│   ├── pages/             # Nuxt pages
+│   └── utils/             # Frontend utilities
+├── cmd/                   # Go applications
+│   ├── api/               # REST API server
+│   └── zmq-listener/      # ZMQ block/tx processor
+├── internal/              # Go internal packages
+│   ├── bchrpc/            # BCH RPC client
+│   ├── bcmr/              # BCMR API client
+│   ├── fulcrum/           # Fulcrum Electrum client
+│   ├── redis/             # Redis client
+│   ├── types/             # Shared types
+│   └── utils/             # Utilities
+├── public/                # Static assets
+├── Dockerfile             # Main API image
+├── Dockerfile.zmq         # ZMQ listener image
+├── docker-compose.yml     # Local development
+└── Makefile              # Build automation
+```
 
-## Implemented routes
+## Available Routes
 
-- `/` latest blocks
-- `/block/:hash` block details + tx list
-- `/tx/:txid` tx details + CashTokens outputs enriched with BCMR metadata
-- `/address/:address` address details (tx history, SENT/RECEIVED, BCH balance, token balances)
-- `/search?q=...` server-side redirect for txid/address search (works without client-side JS)
-- `/status` show BCH node + Fulcrum sync health and connectivity
+- `/` - Latest blocks and transactions
+- `/block/:hash` - Block details with transaction list
+- `/tx/:txid` - Transaction details with CashTokens metadata
+- `/address/:address` - Address history, balances, and tokens
+- `/status` - Node health and sync status
+- `/broadcast` - Broadcast raw transactions
 
+## API Endpoints
+
+See the Go backend code in `cmd/api/main.go` for full API documentation.
+
+## License
+
+MIT
