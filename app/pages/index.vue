@@ -68,31 +68,37 @@
       <div v-else-if="tipError" class="error">Error: {{ tipError.message }}</div>
       <div v-else-if="blocksError" class="error">Error loading blocks: {{ blocksError.message }}</div>
 
-      <div v-else class="blockListWrap">
-        <ul class="list">
-          <li class="row headerRow" aria-hidden="true">
-          <div class="headerLink">
-            <span>Height</span>
-            <span>Hash</span>
-            <span>Miner</span>
-            <span>Time</span>
-          </div>
-        </li>
-        <li v-for="b in blocks" :key="b.hash" class="row">
-          <NuxtLink class="link" :to="`/block/${b.hash}`">
-            <span class="blockHeightCell">
-              <span class="mono">#{{ b.height }}</span>
-              <span class="muted blockTxCount">{{ formatBlockSize(b.size) }}, {{ b.txCount }} {{ b.txCount === 1 ? 'tx' : 'txs' }}</span>
-            </span>
-            <span class="mono hash">{{ truncateHash(b.hash) }}</span>
-            <span class="miner">{{ b.miner || 'Unknown' }}</span>
-            <span class="time">
-              <span class="timeRel">{{ formatRelativeTime(b.time) }}</span>
-              <span class="timeAbs">{{ formatAbsoluteTime(b.time) }}</span>
-            </span>
-          </NuxtLink>
-        </li>
-        </ul>
+      <div v-else class="txTableWrap">
+        <table class="txTable">
+          <thead>
+            <tr>
+              <th>Height</th>
+              <th>Hash</th>
+              <th>Miner</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="b in blocks" :key="b.hash">
+              <td>
+                <NuxtLink class="txLink mono" :to="`/block/${b.hash}`">#{{ b.height }}</NuxtLink>
+                <div class="muted small">{{ formatBlockSize(b.size) }}, {{ b.txCount }} {{ b.txCount === 1 ? 'tx' : 'txs' }}</div>
+              </td>
+              <td>
+                <NuxtLink class="txLink mono" :to="`/block/${b.hash}`">{{ truncateHash(b.hash) }}</NuxtLink>
+              </td>
+              <td class="minerCell">
+                {{ b.miner || 'Unknown' }}
+              </td>
+              <td class="timeCell">
+                <div class="timeCellInner">
+                  <span class="timeRel">{{ formatRelativeTime(b.time) }}</span>
+                  <span class="timeAbs">{{ formatAbsoluteTime(b.time) }}</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
   </main>
@@ -374,96 +380,14 @@ function formatBlockSize(bytes: number): string {
   font-size: 12px;
   color: var(--color-text-muted);
 }
-.blockListWrap {
-  border-radius: 12px;
-}
-.list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 8px;
-}
-.row {
-  border-radius: 14px;
-  padding: 10px 10px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-surface-border);
-}
-.headerRow {
-  background: transparent;
-  border: 0;
-  padding: 0 10px;
-}
-.headerLink {
-  display: grid;
-  grid-template-columns: 160px 1fr 140px 200px;
-  gap: 16px;
-  padding: 0 0 6px;
-  font-size: 13px;
+.minerCell {
   font-weight: 600;
   color: var(--color-text-secondary);
-}
-.headerLink span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.link {
-  display: grid;
-  grid-template-columns: 160px 1fr 140px 200px;
-  gap: 16px;
-  width: 100%;
-  font-size: 13px;
-  text-decoration: none;
-  color: inherit;
-  align-items: baseline;
-  box-sizing: border-box;
-}
-.miner {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.time {
-  display: grid;
-  gap: 2px;
-  white-space: nowrap;
-}
-.time .timeRel {
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-.time .timeAbs {
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-.blockHeightCell {
-  display: grid;
-  gap: 2px;
-}
-.blockTxCount {
-  font-size: 12px;
-}
-.hash {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 @media (max-width: 768px) {
-  .blockListWrap .headerLink span:nth-child(2) {
+  .txTable th:nth-child(2),
+  .txTable td:nth-child(2) {
     display: none;
-  }
-  .blockListWrap .link > .hash {
-    display: none;
-  }
-  .blockListWrap .headerLink,
-  .blockListWrap .link {
-    grid-template-columns: 160px 1fr 200px;
   }
 }
 .error {
