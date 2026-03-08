@@ -120,7 +120,7 @@ func loadConfig() Config {
 		FulcrumHost:    getEnv("FULCRUM_HOST", "127.0.0.1"),
 		FulcrumPort:    getEnvInt("FULCRUM_PORT", 60001),
 		FulcrumTimeout: getEnvInt("FULCRUM_TIMEOUT_MS", 30000),
-		BCMRBaseURL:    getEnv("BCMR_BASE_URL", "https://bcmr.paytaca.com"),
+		BCMRBaseURL:    getEnv("BCMR_BASE_URL", ""),
 		PublicChain:    getEnv("PUBLIC_CHAIN", "mainnet"),
 		MainnetURL:     getEnv("MAINNET_URL", ""),
 		ChipnetURL:     getEnv("CHIPNET_URL", ""),
@@ -174,9 +174,19 @@ func NewServer(cfg Config) (*Server, error) {
 		MaxConns: 100,
 	})
 
-	// Initialize BCMR client
+	// Initialize BCMR client with network-appropriate URL
+	bcmrBaseURL := cfg.BCMRBaseURL
+	if bcmrBaseURL == "" {
+		if cfg.PublicChain == "chipnet" {
+			bcmrBaseURL = "https://bcmr-chipnet.paytaca.com"
+		} else {
+			bcmrBaseURL = "https://bcmr.paytaca.com"
+		}
+	}
+	log.Printf("[BCMR] Using BCMR URL: %s (chain: %s)", bcmrBaseURL, cfg.PublicChain)
+
 	bcmrClient := bcmr.NewClient(bcmr.Config{
-		BaseURL: cfg.BCMRBaseURL,
+		BaseURL: bcmrBaseURL,
 		Timeout: 15 * time.Second,
 	})
 
@@ -259,6 +269,7 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/api/bch/tx/recent", s.handleRecentTransactions)
 	s.router.GET("/api/bch/tx/:txid", s.handleTransaction)
 	s.router.GET("/api/bch/txout/:txid/:vout", s.handleTxOut)
+	s.router.GET("/api/bch/txout/:txid/:vout/spender", s.handleTxOutSpender)
 
 	// Address
 	s.router.GET("/api/bch/address/:address/txs", s.handleAddressTransactions)
@@ -910,6 +921,148 @@ func (s *Server) handleTxOut(c *gin.Context) {
 		"spent":  false,
 		"value":  txout["value"],
 	})
+}
+
+// handleTxOutSpender returns the spending transaction for a spent output
+func (s *Server) handleTxOutSpender(c *gin.Context) {
+	ctx := c.Request.Context()
+	txid := c.Param("txid")
+	voutStr := c.Param("vout")
+
+	vout, err := strconv.Atoi(voutStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid vout"})
+		return
+	}
+
+	if s.rpc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "RPC unavailable"})
+		return
+	}
+
+	// First check if output is actually spent
+	txout, err := s.rpc.GetTxOut(ctx, txid, vout, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check output"})
+		return
+	}
+
+	if txout != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Output is not spent"})
+		return
+	}
+
+	// Get the transaction to find the output's scriptPubKey
+	txData, err := s.rpc.GetRawTransaction(ctx, txid, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get transaction"})
+		return
+	}
+
+	vouts, ok := txData["vout"].([]interface{})
+	if !ok || vout >= len(vouts) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid transaction outputs"})
+		return
+	}
+
+	voutData, ok := vouts[vout].(map[string]interface{})
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid output data"})
+		return
+	}
+
+	scriptPubKey, ok := voutData["scriptPubKey"].(map[string]interface{})
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid scriptPubKey"})
+		return
+	}
+
+	// Get the hex script
+	scriptHex, ok := scriptPubKey["hex"].(string)
+	if !ok || scriptHex == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No script hex"})
+		return
+	}
+
+	// Convert script to scripthash
+	scripthash, err := utils.ScriptToScripthash(scriptHex)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to convert script: %v", err)})
+		return
+	}
+
+	// Query Fulcrum for history
+	if s.fulcrum == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Fulcrum unavailable"})
+		return
+	}
+
+	history, err := s.fulcrum.GetHistory(ctx, scripthash)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get history: %v", err)})
+		return
+	}
+
+	log.Printf("[SPENDER] Looking for spender of %s:%d, scripthash=%s, history items=%d", txid, vout, scripthash, len(history))
+
+	// Also check mempool
+	mempool, err := s.fulcrum.GetMempool(ctx, scripthash)
+	if err != nil {
+		log.Printf("[SPENDER] Failed to get mempool: %v", err)
+	} else {
+		log.Printf("[SPENDER] Mempool items=%d", len(mempool))
+		// Prepend mempool items to history
+		history = append(mempool, history...)
+	}
+
+	// Look for the spending transaction
+	for _, item := range history {
+		historyTxid, _ := item["tx_hash"].(string)
+		if historyTxid == "" || historyTxid == txid {
+			continue
+		}
+
+		log.Printf("[SPENDER] Checking tx %s for spender of %s:%d", historyTxid, txid, vout)
+
+		// Get this transaction to check its inputs
+		spenderTx, err := s.rpc.GetRawTransaction(ctx, historyTxid, true)
+		if err != nil {
+			log.Printf("[SPENDER] Failed to get tx %s: %v", historyTxid, err)
+			continue
+		}
+
+		vins, ok := spenderTx["vin"].([]interface{})
+		if !ok {
+			log.Printf("[SPENDER] Tx %s has no valid vin array", historyTxid)
+			continue
+		}
+
+		log.Printf("[SPENDER] Tx %s has %d inputs", historyTxid, len(vins))
+
+		for idx, vinRaw := range vins {
+			vin, ok := vinRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			vinTxid, _ := vin["txid"].(string)
+			vinVout, _ := vin["vout"].(float64)
+
+			log.Printf("[SPENDER]   Input %d: %s:%d (looking for %s:%d)", idx, vinTxid, int(vinVout), txid, vout)
+
+			if vinTxid == txid && int(vinVout) == vout {
+				log.Printf("[SPENDER] Found spender! txid=%s, input_index=%d", historyTxid, idx)
+				c.JSON(http.StatusOK, gin.H{
+					"txid":        historyTxid,
+					"input_index": idx,
+				})
+				return
+			}
+		}
+	}
+
+	log.Printf("[SPENDER] No spender found for %s:%d after checking %d transactions", txid, vout, len(history))
+	c.JSON(http.StatusNotFound, gin.H{"error": "Spender not found"})
 }
 
 // handleAddressTransactions returns address transactions

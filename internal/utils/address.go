@@ -287,3 +287,22 @@ func Max(a, b int) int {
 	}
 	return b
 }
+
+// ScriptToScripthash converts a script hex to scripthash for Fulcrum
+func ScriptToScripthash(scriptHex string) (string, error) {
+	script, err := hex.DecodeString(scriptHex)
+	if err != nil {
+		return "", fmt.Errorf("invalid script hex: %w", err)
+	}
+
+	// Single SHA256 (Electrum/Fulcrum scripthash is SHA256 of script, reversed)
+	h := sha256.Sum256(script)
+
+	// Reverse byte order (Fulcrum expects reversed hash)
+	scripthash := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		scripthash[i] = h[31-i]
+	}
+
+	return hex.EncodeToString(scripthash), nil
+}

@@ -76,7 +76,7 @@
 
       <h2 class="h2">Inputs</h2>
       <ul class="list">
-        <li v-for="(i, idx) in inputs" :key="i.key" class="row">
+        <li v-for="(i, idx) in inputs" :key="i.key" class="row" :class="{ highlight: highlightInput === idx }">
           <div class="rowTop">
             <div class="mono muted">#{{ idx }}</div>
             <div class="amount">{{ formatBch(i.value) }} <span class="unit">BCH</span></div>
@@ -94,7 +94,7 @@
 
           <div class="line">
             <span class="label">Outpoint</span>
-            <span class="mono">{{ i.txid }}:{{ i.vout }}</span>
+            <span class="mono"><NuxtLink class="outpointLink" :to="`/tx/${i.txid}?output=${i.vout}`">{{ i.txid }}:{{ i.vout }}</NuxtLink></span>
           </div>
 
           <div v-if="i.tokenData?.category" class="tokenBox">
@@ -170,7 +170,7 @@
                   </span>
                 </template>
                 <template v-else-if="outpointStatus[o.n] === 'spent'">
-                  <span class="iconBadge" aria-label="Spent" title="Spent">
+                  <button class="iconBadge isSpentBtn" aria-label="Spent - click to view spender" title="Spent - click to view spender" @click="goToSpender(o.n)">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         d="M12 2.5a9.5 9.5 0 1 0 0 19a9.5 9.5 0 0 0 0-19Z"
@@ -202,7 +202,7 @@
                         stroke-linecap="round"
                       />
                     </svg>
-                  </span>
+                  </button>
                 </template>
                 <template v-else>
                   <span aria-label="Unknown" title="Unknown">•</span>
@@ -282,6 +282,13 @@ const highlightOutput = computed<number | null>(() => {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null
 })
 
+const highlightInput = computed<number | null>(() => {
+  const i = route.query.input
+  if (i == null) return null
+  const n = Number(i)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null
+})
+
 const locale = ref(navigator.language || 'en-US')
 
 const addressMode = useAddressDisplayMode()
@@ -300,11 +307,19 @@ const { data: tx, pending, error } = await useFetch<any>(`/api/bch/tx/${txid}`)
 
 onMounted(() => {
   const outputIdx = highlightOutput.value
-  if (outputIdx == null) return
+  const inputIdx = highlightInput.value
+
   nextTick(() => {
-    const outputs = document.querySelectorAll('.outputs .row')
-    if (outputs[outputIdx]) {
-      outputs[outputIdx].scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (inputIdx != null) {
+      const inputs = document.querySelectorAll('.list .row')
+      if (inputs[inputIdx]) {
+        inputs[inputIdx].scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    } else if (outputIdx != null) {
+      const outputs = document.querySelectorAll('.outputs .row')
+      if (outputs[outputIdx]) {
+        outputs[outputIdx].scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
     }
   })
 })
@@ -567,6 +582,17 @@ function spentStatusClass(o: TxOutput) {
   const s = outpointStatus.value[o.n]
   return s === 'unspent' ? 'isUnspent' : s === 'spent' ? 'isSpent' : 'isUnknown'
 }
+
+async function goToSpender(vout: number) {
+  try {
+    const res = await $fetch<{ txid: string; input_index: number }>(`/api/bch/txout/${txid}/${vout}/spender`)
+    if (res?.txid) {
+      await navigateTo({ path: `/tx/${res.txid}`, query: { input: res.input_index } })
+    }
+  } catch (e) {
+    console.error('Failed to find spender:', e)
+  }
+}
 </script>
 
 <style scoped>
@@ -713,6 +739,24 @@ function spentStatusClass(o: TxOutput) {
 .spentIcon.isSpent {
   color: var(--color-icon-spent);
 }
+.isSpentBtn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  color: inherit;
+}
+.isSpentBtn:hover {
+  opacity: 0.7;
+}
+.isSpentBtn:active {
+  opacity: 0.5;
+}
 .spentIcon.isUnknown {
   color: var(--color-text-muted);
 }
@@ -747,6 +791,14 @@ function spentStatusClass(o: TxOutput) {
   text-decoration: none;
 }
 .addrLink:hover {
+  text-decoration: underline;
+  color: var(--color-link);
+}
+.outpointLink {
+  color: inherit;
+  text-decoration: none;
+}
+.outpointLink:hover {
   text-decoration: underline;
   color: var(--color-link);
 }
