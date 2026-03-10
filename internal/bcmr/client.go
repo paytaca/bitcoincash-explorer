@@ -21,11 +21,15 @@ type Config struct {
 	Timeout time.Duration
 }
 
-type tokenResponse struct {
-	Name     string `json:"name"`
+type tokenResponseToken struct {
 	Symbol   string `json:"symbol"`
 	Decimals int    `json:"decimals"`
-	Error    string `json:"error"`
+}
+
+type tokenResponse struct {
+	Name  string             `json:"name"`
+	Token tokenResponseToken `json:"token"`
+	Error string             `json:"error"`
 }
 
 func NewClient(cfg Config) *Client {
@@ -75,14 +79,14 @@ func (c *Client) GetTokenMetadata(ctx context.Context, category string) (*types.
 		return nil, fmt.Errorf("BCMR: %s", tokenResp.Error)
 	}
 
-	if tokenResp.Symbol == "" && tokenResp.Name == "" {
+	if tokenResp.Token.Symbol == "" && tokenResp.Name == "" {
 		return nil, fmt.Errorf("no token metadata found")
 	}
 
 	return &types.TokenMetadata{
 		Category: category,
 		Name:     tokenResp.Name,
-		Symbol:   tokenResp.Symbol,
-		Decimals: tokenResp.Decimals,
+		Symbol:   tokenResp.Token.Symbol,
+		Decimals: tokenResp.Token.Decimals,
 	}, nil
 }
