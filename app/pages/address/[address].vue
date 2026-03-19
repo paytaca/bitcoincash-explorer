@@ -41,6 +41,14 @@
             </svg>
           </button>
           <div class="qrModalBody">
+            <div class="segmented qrSegmented" role="group" aria-label="Address display mode">
+              <button class="segBtn" :class="{ active: addressMode === 'cash' }" type="button" @click="setAddressMode('cash')">
+                Cash Address
+              </button>
+              <button class="segBtn" :class="{ active: addressMode === 'token' }" type="button" @click="setAddressMode('token')">
+                Token Address
+              </button>
+            </div>
             <canvas ref="qrCanvas"></canvas>
             <p class="qrAddress mono">{{ displayAddress }}</p>
           </div>
@@ -505,6 +513,9 @@ function formatSignedBch(net: number) {
   text-align: center;
   max-width: 220px;
   color: var(--color-text-secondary);
+}
+.qrSegmented {
+  margin-bottom: 8px;
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
