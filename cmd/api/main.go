@@ -1681,8 +1681,28 @@ func fetchAddressTxItem(
 				continue
 			}
 
-			prevout, ok := vin["prevout"].(map[string]interface{})
-			if !ok {
+			var prevout map[string]interface{}
+
+			// Try to get prevout directly from vin (some Fulcrum versions include it)
+			if po, ok := vin["prevout"].(map[string]interface{}); ok {
+				prevout = po
+			} else {
+				// Fetch previous transaction to get the output
+				prevTxid, _ := vin["txid"].(string)
+				prevVoutIdx := int(toInt64(vin["vout"]))
+
+				if prevTxid != "" {
+					if prevTx, err := s.fulcrum.GetTransaction(ctx, prevTxid, true); err == nil {
+						if prevVouts, ok := prevTx["vout"].([]interface{}); ok && prevVoutIdx < len(prevVouts) {
+							if voutData, ok := prevVouts[prevVoutIdx].(map[string]interface{}); ok {
+								prevout = voutData
+							}
+						}
+					}
+				}
+			}
+
+			if prevout == nil {
 				continue
 			}
 
