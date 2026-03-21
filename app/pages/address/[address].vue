@@ -918,13 +918,23 @@ html.dark .dirBadge.isReceived {
   position: relative;
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
-  border-radius: 16px;
-  padding: 24px;
+  border-radius: 12px;
+  padding: 16px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-  max-width: 90vw;
+  max-width: calc(100vw - 32px);
   max-height: 80vh;
   overflow-y: auto;
-  width: 600px;
+  width: 100%;
+  margin: 16px;
+}
+@media (min-width: 640px) {
+  .nftModalContent {
+    border-radius: 16px;
+    padding: 24px;
+    width: 600px;
+    max-width: 90vw;
+    margin: 0;
+  }
 }
 .nftModalClose {
   position: absolute;
@@ -979,8 +989,14 @@ html.dark .dirBadge.isReceived {
 }
 .nftGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .nftGrid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
 }
 .nftCard {
   background: var(--color-surface);
