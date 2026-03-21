@@ -66,6 +66,27 @@ type TokenMetadata struct {
 	Category string `json:"category,omitempty"`
 }
 
+// NFTMetadata represents BCMR NFT metadata with commitment
+type NFTMetadata struct {
+	Category     string            `json:"category,omitempty"`
+	Commitment   string            `json:"commitment,omitempty"`
+	Name         string            `json:"name,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Symbol       string            `json:"symbol,omitempty"`
+	Decimals     int               `json:"decimals,omitempty"`
+	URIs         map[string]string `json:"uris,omitempty"`
+	IsNFT        bool              `json:"is_nft,omitempty"`
+	NFTType      string            `json:"nft_type,omitempty"`
+	TypeMetadata *NFTTypeMetadata  `json:"type_metadata,omitempty"`
+}
+
+// NFTTypeMetadata represents commitment-specific NFT metadata
+type NFTTypeMetadata struct {
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
+	URIs        map[string]string `json:"uris,omitempty"`
+}
+
 // AddressBalance represents an address balance
 type AddressBalance struct {
 	Confirmed   float64                 `json:"confirmed"`

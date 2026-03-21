@@ -67,7 +67,9 @@ export default defineNuxtConfig({
     public: {
       chain: (env.CHAIN || 'mainnet') as string,
       mainnetUrl: (env.MAINNET_URL || '') as string,
-      chipnetUrl: (env.CHIPNET_URL || '') as string
+      chipnetUrl: (env.CHIPNET_URL || '') as string,
+      ipfsGateway: (env.NUXT_PUBLIC_IPFS_GATEWAY || 'https://ipfs.paytaca.com/ipfs/') as string,
+      pinataGatewayToken: (env.NUXT_PUBLIC_PINATA_GATEWAY_TOKEN || '') as string
     }
   },
 

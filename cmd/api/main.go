@@ -279,6 +279,7 @@ func (s *Server) setupRoutes() {
 
 	// BCMR
 	s.router.GET("/api/bcmr/token/:category", s.handleTokenMetadata)
+	s.router.GET("/api/bcmr/token/:category/:commitment", s.handleNFTMetadata)
 	s.router.DELETE("/api/bcmr/token/:category/cache", s.handleTokenMetadataCacheClear)
 
 	// Search
@@ -1238,6 +1239,10 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 	}
 
 	// Optional token balances from tokenized UTXOs
+	type nftInfo struct {
+		commitment string
+		capability string
+	}
 	type tokenAgg struct {
 		category   string
 		fungible   *big.Int
@@ -1245,6 +1250,7 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 		nftMutable int
 		nftMinting int
 		utxoCount  int
+		nfts       []nftInfo
 	}
 
 	tokenMap := make(map[string]*tokenAgg)
@@ -1285,13 +1291,25 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 			}
 
 			if nft, ok := td["nft"].(map[string]interface{}); ok {
-				switch nft["capability"] {
+				capability := ""
+				if capStr, ok := nft["capability"].(string); ok {
+					capability = capStr
+				}
+				commitment := ""
+				if commStr, ok := nft["commitment"].(string); ok {
+					commitment = commStr
+				}
+				nftInfo := nftInfo{commitment: commitment, capability: capability}
+				switch capability {
 				case "none":
 					agg.nftNone++
+					agg.nfts = append(agg.nfts, nftInfo)
 				case "mutable":
 					agg.nftMutable++
+					agg.nfts = append(agg.nfts, nftInfo)
 				case "minting":
 					agg.nftMinting++
+					agg.nfts = append(agg.nfts, nftInfo)
 				}
 			}
 		}
@@ -1314,16 +1332,19 @@ func (s *Server) handleAddressTransactions(c *gin.Context) {
 	tokenBalances := make([]map[string]interface{}, 0, len(tokenBuckets))
 	for _, b := range tokenBuckets {
 		nftCount := b.nftNone + b.nftMutable + b.nftMinting
+		nfts := make([]map[string]interface{}, len(b.nfts))
+		for i, nft := range b.nfts {
+			nfts[i] = map[string]interface{}{
+				"commitment": nft.commitment,
+				"capability": nft.capability,
+			}
+		}
 		tokenBalances = append(tokenBalances, map[string]interface{}{
 			"category":       b.category,
 			"fungibleAmount": b.fungible.String(),
 			"nftCount":       nftCount,
-			"nft": map[string]interface{}{
-				"none":    b.nftNone,
-				"mutable": b.nftMutable,
-				"minting": b.nftMinting,
-			},
-			"utxoCount": b.utxoCount,
+			"nfts":           nfts,
+			"utxoCount":      b.utxoCount,
 		})
 	}
 
@@ -1834,6 +1855,28 @@ func (s *Server) handleTokenMetadata(c *gin.Context) {
 
 	// Cache it
 	s.redis.SetTokenMetadata(ctx, category, metadata)
+
+	c.JSON(http.StatusOK, metadata)
+}
+
+// handleNFTMetadata returns BCMR NFT metadata for a specific commitment
+func (s *Server) handleNFTMetadata(c *gin.Context) {
+	ctx := c.Request.Context()
+	category := c.Param("category")
+	commitment := c.Param("commitment")
+
+	if category == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Category required"})
+		return
+	}
+
+	// Fetch from BCMR
+	metadata, err := s.bcmr.GetNFTMetadata(ctx, category, commitment)
+	if err != nil {
+		log.Printf("[BCMR] NFT metadata unavailable for category=%s commitment=%s: %v", category, commitment, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "NFT metadata not found"})
+		return
+	}
 
 	c.JSON(http.StatusOK, metadata)
 }

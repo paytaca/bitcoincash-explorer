@@ -56,6 +56,43 @@
       </div>
     </Teleport>
 
+    <Teleport to="body">
+      <div v-if="showNftDialog && selectedToken" class="nftModal" @click.self="closeNftDialog">
+        <div class="nftModalContent">
+          <button class="nftModalClose" type="button" aria-label="Close" @click="closeNftDialog">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          <div class="nftModalHeader">
+            <h3 class="nftModalTitle">{{ genericNftMeta[selectedToken.category]?.name || 'NFTs' }}</h3>
+            <p class="nftModalSubtitle mono">{{ selectedToken.category }}</p>
+          </div>
+          <div class="nftModalBody">
+            <div v-if="selectedToken.nfts.filter(n => n.capability === 'none').some(n => !nftMetaByKey[`${selectedToken.category}:${n.commitment || ''}`])" class="nftLoading">Loading metadata...</div>
+            <div v-else-if="selectedToken.nfts.filter(n => n.capability === 'none').length === 0" class="nftEmpty">No displayable NFTs found</div>
+            <div v-else class="nftGrid">
+              <div v-for="(nft, idx) in selectedToken.nfts.filter(n => n.capability === 'none')" :key="idx" class="nftCard">
+                <div class="nftCardImage">
+                  <template v-if="nftMetaByKey[`${selectedToken.category}:${nft.commitment || ''}`]?.uris?.icon">
+                    <img :src="convertIpfsUrl(nftMetaByKey[`${selectedToken.category}:${nft.commitment || ''}`].uris.icon)" :alt="nftMetaByKey[`${selectedToken.category}:${nft.commitment || ''}`]?.name || `NFT ${nft.commitment || idx + 1}`" />
+                  </template>
+                  <template v-else>
+                    <div class="nftCardPlaceholder">NFT</div>
+                  </template>
+                </div>
+                <div class="nftCardInfo">
+                  <p class="nftCardName">{{ nftMetaByKey[`${selectedToken.category}:${nft.commitment || ''}`]?.name || nft.commitment || 'No commitment' }}</p>
+                  <p v-if="nftMetaByKey[`${selectedToken.category}:${nft.commitment || ''}`]?.symbol" class="nftCardSymbol mono">{{ nftMetaByKey[`${selectedToken.category}:${nft.commitment || ''}`].symbol }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <section class="card">
       <div class="cardHeader">
         <h2 class="h2">BCH Balance</h2>
@@ -99,7 +136,12 @@
                 <template v-else>—</template>
               </td>
               <td class="right">
-                <template v-if="t.nftCount">
+                <template v-if="t.nftCount && t.nfts?.length">
+                  <button class="nftCountBtn" type="button" @click="openNftDialog(t.category, t.nfts)">
+                    <span class="mono">{{ t.nftCount }}</span>
+                  </button>
+                </template>
+                <template v-else-if="t.nftCount">
                   <span class="mono">{{ t.nftCount }}</span>
                 </template>
                 <template v-else>—</template>
@@ -198,6 +240,33 @@ import type { AddressDisplayMode } from '~/utils/addressFormat'
 import { convertCashAddrDisplay } from '~/utils/addressFormat'
 import QRCode from 'qrcode'
 
+function normalizeTokenMeta(payload: any): { name?: string; symbol?: string; decimals?: number } {
+  const bestToken = payload?.token?.tokenIcons?.[0] ?? payload?.token ?? payload
+  return {
+    name: bestToken?.name,
+    symbol: bestToken?.symbol,
+    decimals: typeof bestToken?.decimals === 'number' ? bestToken.decimals : undefined
+  }
+}
+
+const IPFS_GATEWAY = useRuntimeConfig().public.ipfsGateway
+const PINATA_GATEWAY_TOKEN = useRuntimeConfig().public.pinataGatewayToken
+
+function convertIpfsUrl(url: string): string {
+  if (!url || typeof url !== 'string') return url
+  let convertedUrl = url
+  // Convert ipfs:// protocol to HTTPS gateway
+  if (url.startsWith('ipfs://')) {
+    convertedUrl = url.replace('ipfs://', IPFS_GATEWAY)
+  }
+  // Add Pinata gateway token for paytaca.com gateway authentication
+  if (PINATA_GATEWAY_TOKEN && convertedUrl.startsWith('https://ipfs.paytaca.com/ipfs')) {
+    const separator = convertedUrl.includes('?') ? '&' : '?'
+    convertedUrl += separator + 'pinataGatewayToken=' + PINATA_GATEWAY_TOKEN
+  }
+  return convertedUrl
+}
+
 type AddressTxItem = {
   txid: string
   status: 'mempool' | 'confirmed'
@@ -216,7 +285,7 @@ type AddressTxResponse = {
   scanned: { source: 'fulcrum'; scripthash: string; tipHeight?: number; cursor: number; window: number }
   nextCursor: number | null
   balance: { confirmed: number; unconfirmed: number }
-  tokenBalances: { category: string; fungibleAmount: string; nftCount: number; nft: { none: number; mutable: number; minting: number }; utxoCount: number }[]
+  tokenBalances: { category: string; fungibleAmount: string; nftCount: number; nfts?: { commitment: string; capability: string }[]; utxoCount: number }[]
   tokenMeta: Record<string, { name?: string; symbol?: string; decimals?: number }>
   items: AddressTxItem[]
 }
@@ -236,9 +305,60 @@ onMounted(() => {
 
 const showQr = ref(false)
 const qrCanvas = ref<HTMLCanvasElement | null>(null)
+const showNftDialog = ref(false)
+const selectedToken = ref<{ category: string; nfts: { commitment: string; capability: string }[] } | null>(null)
+const nftMetaByKey = reactive<Record<string, { name?: string; symbol?: string; uris?: { icon?: string }; description?: string }>>({})
+const genericNftMeta = reactive<Record<string, { name?: string; symbol?: string; description?: string }>>({})
 
 function setAddressMode(mode: AddressDisplayMode) {
   addressMode.value = mode
+}
+
+function openNftDialog(category: string, nfts: { commitment: string; capability: string }[]) {
+  selectedToken.value = { category, nfts }
+  showNftDialog.value = true
+}
+
+function closeNftDialog() {
+  showNftDialog.value = false
+  selectedToken.value = null
+}
+
+async function loadNftMetadata(category: string, nfts: { commitment: string; capability: string }[]) {
+  // Fetch generic category metadata for dialog title
+  if (!genericNftMeta[category]) {
+    try {
+      const genericPayload = await $fetch<any>(`/api/bcmr/token/${category}`)
+      genericNftMeta[category] = {
+        name: genericPayload?.name,
+        symbol: genericPayload?.token?.symbol,
+        description: genericPayload?.description
+      }
+    } catch {
+      genericNftMeta[category] = {}
+    }
+  }
+  
+  for (const nft of nfts.filter(n => n.capability === 'none')) {
+    const key = `${category}:${nft.commitment || ''}`
+    if (nftMetaByKey[key]) continue
+    try {
+      const payload = await $fetch<any>(`/api/bcmr/token/${category}/${nft.commitment || ''}`)
+      // type_metadata contains specific metadata for this NFT commitment
+      const typeMeta = payload?.type_metadata
+      nftMetaByKey[key] = {
+        // Use type_metadata name if available, otherwise fallback to generic name
+        name: typeMeta?.name || payload?.name,
+        symbol: payload?.token?.symbol,
+        // Use type_metadata uris if available, otherwise fallback to generic uris
+        uris: typeMeta?.uris || payload?.uris,
+        // Use type_metadata description if available, otherwise fallback to generic description
+        description: typeMeta?.description || payload?.description
+      }
+    } catch {
+      nftMetaByKey[key] = {}
+    }
+  }
 }
 
 const displayAddress = computed(() => convertCashAddrDisplay(address, addressMode.value))
@@ -260,6 +380,12 @@ watch([showQr, displayAddress], async ([isShowing]) => {
   if (isShowing) {
     await nextTick()
     await renderQrCode()
+  }
+})
+
+watch(showNftDialog, async (isOpen) => {
+  if (isOpen && selectedToken.value) {
+    await loadNftMetadata(selectedToken.value.category, selectedToken.value.nfts)
   }
 })
 
@@ -766,6 +892,133 @@ html.dark .dirBadge.isReceived {
   .timeAbs {
     display: none;
   }
+}
+.nftCountBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  color: var(--color-link);
+}
+.nftCountBtn:hover {
+  color: var(--color-link-hover);
+}
+.nftModal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+.nftModalContent {
+  position: relative;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  width: 600px;
+}
+.nftModalClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-input);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.nftModalClose:hover {
+  background: var(--color-surface);
+}
+.nftModalClose svg {
+  width: 16px;
+  height: 16px;
+}
+.nftModalHeader {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.nftModalTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.nftModalSubtitle {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.nftModalBody {
+  min-height: 100px;
+}
+.nftLoading {
+  text-align: center;
+  color: var(--color-text-secondary);
+  padding: 40px;
+}
+.nftEmpty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 40px;
+}
+.nftGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 16px;
+}
+.nftCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.nftCardImage {
+  aspect-ratio: 1;
+  background: var(--color-bg-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nftCardImage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.nftCardPlaceholder {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+.nftCardInfo {
+  padding: 12px;
+}
+.nftCardName {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  word-break: break-word;
+  line-height: 1.3;
+}
+.nftCardSymbol {
+  margin: 0;
+  font-size: 10px;
+  color: var(--color-text-secondary);
 }
 </style>
 

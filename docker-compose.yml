@@ -47,6 +47,8 @@ services:
         MAINNET_URL: ${MAINNET_URL}
         CHIPNET_URL: ${CHIPNET_URL}
         NUXT_PUBLIC_SITE_URL: ${SITE_URL:-https://bchexplorer.info}
+        NUXT_PUBLIC_IPFS_GATEWAY: ${IPFS_GATEWAY:-https://ipfs.paytaca.com/ipfs/}
+        NUXT_PUBLIC_PINATA_GATEWAY_TOKEN: ${PINATA_GATEWAY_TOKEN}
     network_mode: "host"
     environment:
       # Go API server
@@ -70,6 +72,10 @@ services:
       CHAIN: ${CHAIN:-mainnet}
       MAINNET_URL: ${MAINNET_URL}
       CHIPNET_URL: ${CHIPNET_URL}
+      
+      # IPFS Gateway for NFT images
+      NUXT_PUBLIC_IPFS_GATEWAY: ${IPFS_GATEWAY:-https://ipfs.paytaca.com/ipfs/}
+      NUXT_PUBLIC_PINATA_GATEWAY_TOKEN: ${PINATA_GATEWAY_TOKEN}
       
       # Redis
       REDIS_URL: redis://127.0.0.1:6379/0

@@ -26,6 +26,23 @@ type tokenResponseToken struct {
 	Decimals int    `json:"decimals"`
 }
 
+type nftMetadataResponse struct {
+	Name         string             `json:"name"`
+	Description  string             `json:"description"`
+	Token        tokenResponseToken `json:"token"`
+	URIs         map[string]string  `json:"uris"`
+	IsNFT        bool               `json:"is_nft"`
+	NFTType      string             `json:"nft_type"`
+	TypeMetadata *nftTypeMetadata   `json:"type_metadata,omitempty"`
+	Error        string             `json:"error"`
+}
+
+type nftTypeMetadata struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	URIs        map[string]string `json:"uris"`
+}
+
 type tokenResponse struct {
 	Name  string             `json:"name"`
 	Token tokenResponseToken `json:"token"`
@@ -88,5 +105,57 @@ func (c *Client) GetTokenMetadata(ctx context.Context, category string) (*types.
 		Name:     tokenResp.Name,
 		Symbol:   tokenResp.Token.Symbol,
 		Decimals: tokenResp.Token.Decimals,
+	}, nil
+}
+
+func (c *Client) GetNFTMetadata(ctx context.Context, category, commitment string) (*types.NFTMetadata, error) {
+	url := fmt.Sprintf("%s/api/tokens/%s/%s/", c.baseURL, category, commitment)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	var nftResp nftMetadataResponse
+	if err := json.NewDecoder(resp.Body).Decode(&nftResp); err != nil {
+		return nil, err
+	}
+
+	if nftResp.Error != "" {
+		return nil, fmt.Errorf("BCMR: %s", nftResp.Error)
+	}
+
+	var typeMeta *types.NFTTypeMetadata
+	if nftResp.TypeMetadata != nil {
+		typeMeta = &types.NFTTypeMetadata{
+			Name:        nftResp.TypeMetadata.Name,
+			Description: nftResp.TypeMetadata.Description,
+			URIs:        nftResp.TypeMetadata.URIs,
+		}
+	}
+
+	return &types.NFTMetadata{
+		Category:     category,
+		Commitment:   commitment,
+		Name:         nftResp.Name,
+		Description:  nftResp.Description,
+		Symbol:       nftResp.Token.Symbol,
+		Decimals:     nftResp.Token.Decimals,
+		URIs:         nftResp.URIs,
+		IsNFT:        nftResp.IsNFT,
+		NFTType:      nftResp.NFTType,
+		TypeMetadata: typeMeta,
 	}, nil
 }
